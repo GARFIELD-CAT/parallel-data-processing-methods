@@ -10,14 +10,7 @@ class Program
         const int randomSeed = 42;
 
         // Генерация данных
-        var random = new Random(randomSeed);
-        var data = new decimal[dataSize];
-
-        for (int i = 0; i < dataSize; i++)
-        {
-            // Значения в диапазоне [1.0, 1000.0]
-            data[i] = (decimal)(random.NextDouble() * 999.0 + 1.0);
-        }
+        decimal[] data = GenerateData(dataSize, randomSeed);
 
         // Запуск последовательной обработки
         var (seqTime, seqResult) = PerformanceMeter.MeasureExecutionTime(
@@ -39,5 +32,19 @@ class Program
         Console.WriteLine("Параллельная обработка ({0} потоков): {1} мс", threadCount, parTime);
         Console.WriteLine("Ускорение: {0}x", speedup);
         Console.WriteLine("Результаты совпадают: {0}", equal ? "Да" : "Нет");
+    }
+
+    static decimal[] GenerateData(int dataSize, int randomSeed)
+    {
+        var random = new Random(randomSeed);
+        decimal[] data = new decimal[dataSize];
+
+        // Массив размером dataSize с элементами double между 1.0 and 1000.0
+        for (int i = 0; i < dataSize; i++)
+        {
+            data[i] = (decimal)(random.NextDouble() * 999.0 + 1.0);
+        }
+
+        return data;
     }
 }
