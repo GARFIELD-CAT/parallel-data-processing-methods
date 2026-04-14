@@ -7,14 +7,15 @@ using System.Threading.Tasks;
 public class TaskProcessor
 {
     // Обработчик для части массива: пример обработки — вычисление sqrt и умножение (любой детерминированный CPU-bound work)
-    private static void ProcessSegment(decimal[] input, decimal[] output, int start, int length)
+    private static void ProcessPartData(decimal[] input, decimal[] output, int start, int length)
     {
         int end = start + length;
+
         for (int i = start; i < end; i++)
         {
-            // Пример вычисления: (decimal)Math.Sqrt((double)input[i]) * 1.23m
+            // Временный приведение к double для Math.*; результат обратно в decimal
             double v = (double)input[i];
-            double r = Math.Sqrt(v) * 1.23;
+            double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
             output[i] = (decimal)r;
         }
     }
@@ -45,7 +46,7 @@ public class TaskProcessor
                 {
                     try
                     {
-                        ProcessSegment(data, result, start, size);
+                        ProcessPartData(data, result, start, size);
                     }
                     finally
                     {
@@ -84,7 +85,7 @@ public class TaskProcessor
             offset += size;
 
             // Task.Run выполняет работу в фоновом потоке (может использовать ThreadPool)
-            tasks.Add(Task.Run(() => ProcessSegment(data, result, start, size)));
+            tasks.Add(Task.Run(() => ProcessPartData(data, result, start, size)));
         }
 
         return Task.WhenAll(tasks).ContinueWith(t =>

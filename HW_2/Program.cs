@@ -10,7 +10,6 @@ class Program
     static void Main(string[] args)
     {
         const int dataSize = 10_000_000;
-        const int threadCount = 4;
         const int randomSeed = 42;
 
         // Генерация данных
@@ -20,7 +19,7 @@ class Program
 
         // Последовательная обработка
         var sw = Stopwatch.StartNew();
-        decimal[] seq = SequentialProcess(data);
+        decimal[] seq = ProcessDataSequential(data);
         sw.Stop();
         long seqMs = sw.ElapsedMilliseconds;
         Console.WriteLine($"Последовательная обработка: {seqMs} мс");
@@ -99,18 +98,24 @@ APM обработка: {apmMs} мс
     }
 
     // Простая последовательная обработка
-    static decimal[] SequentialProcess(decimal[] data)
+    public static decimal[] ProcessDataSequential(decimal[] data)
     {
+        if (data == null) throw new ArgumentNullException(nameof(data));
+
         int n = data.Length;
-        decimal[] outArr = new decimal[n];
+        var result = new decimal[n];
+
         for (int i = 0; i < n; i++)
         {
+            // Временный приведение к double для Math.*; результат обратно в decimal
             double v = (double)data[i];
-            double r = Math.Sqrt(v) * 1.23;
-            outArr[i] = (decimal)r;
+            double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
+            result[i] = (decimal)r;
         }
-        return outArr;
+
+        return result;
     }
+
 
     static bool CompareArrays(decimal[] a, decimal[] b, decimal tolerance = 0.0001m)
     {

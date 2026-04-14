@@ -2,3 +2,15 @@
 2026-04-11T14:22:50.1641917+03:00 Completed APM log entry
 2026-04-11T14:26:19.2988343+03:00 Summary: seq=338 мс, tp=65 мс, tap=39 мс, apm=71 мс
 2026-04-11T14:26:19.3043258+03:00 Completed APM log entry
+2026-04-11T14:38:55.8152243+03:00 Summary: seq=317 мс, tp=73 мс, tap=34 мс, apm=60 мс
+2026-04-11T14:38:55.8212189+03:00 Completed APM log entry
+2026-04-11T14:43:03.7207290+03:00 Summary: seq=475 мс, tp=61 мс, tap=38 мс, apm=63 мс
+2026-04-11T14:43:03.7257400+03:00 Completed APM log entry
+2026-04-11T14:44:28.9865804+03:00 Summary: seq=490 мс, tp=95 мс, tap=55 мс, apm=94 мс
+2026-04-11T14:44:28.9927835+03:00 Completed APM log entry
+2026-04-11T18:34:20.6111109+03:00 Summary: seq=497 мс, tp=96 мс, tap=61 мс, apm=96 мс
+2026-04-11T18:34:20.6167536+03:00 Completed APM log entry
+2026-04-11T18:34:38.9647659+03:00 Summary: seq=461 мс, tp=88 мс, tap=55 мс, apm=91 мс
+2026-04-11T18:34:38.9714300+03:00 Completed APM log entry
+2026-04-14T20:31:09.9473197+03:00 Summary: seq=516 мс, tp=97 мс, tap=58 мс, apm=98 мс
+2026-04-14T20:31:09.9550474+03:00 Completed APM log entry
