@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+
 
 // Класс для обработки задач данных
 public class TaskProcessor

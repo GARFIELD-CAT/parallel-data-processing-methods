@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+
 
 class Program
 {
@@ -53,8 +51,8 @@ class Program
         bool equalTap = seqRes.SequenceEqual(tapRes);
         bool equalApm = seqRes.SequenceEqual(apmRes);
         bool allEqual = equalTp && equalTap && equalApm;
-
         Console.WriteLine();
+
         Console.WriteLine("=== Результаты обработки ===");
         Console.WriteLine($"Размер данных: {dataSize:N0} элементов");
         Console.WriteLine($"Последовательная обработка: {seqMs} мс");
