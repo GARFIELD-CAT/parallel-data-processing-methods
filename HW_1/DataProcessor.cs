@@ -8,12 +8,11 @@ public static class DataProcessor
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
 
-        int n = data.Length;
-        var result = new decimal[n];
+        var result = new decimal[data.Length];
 
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < data.Length; i++)
         {
-            // Временный приведение к double для Math.*; результат обратно в decimal
+            // Временное приведение к double для Math.*; результат обратно в decimal
             double v = (double)data[i];
             double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
             result[i] = (decimal)r;
