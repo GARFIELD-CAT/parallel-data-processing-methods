@@ -1,124 +1,114 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
+// Класс для обработки задач данных
 public class TaskProcessor
 {
-    // Обработчик для части массива: пример обработки — вычисление sqrt и умножение (любой детерминированный CPU-bound work)
-    private static void ProcessPartData(decimal[] input, decimal[] output, int start, int length)
-    {
-        int end = start + length;
+    // Разделяем работу на N частей, где N = min(8, Environment.ProcessorCount)
+    // Это соответствует требованию "на 8 частей", но не жестко кодирует потоков при малом числе CPU.
+    private int GetPartsCount() => Math.Min(8, Environment.ProcessorCount);
 
-        for (int i = start; i < end; i++)
-        {
-            // Временный приведение к double для Math.*; результат обратно в decimal
-            double v = (double)input[i];
-            double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
-            output[i] = (decimal)r;
-        }
+    // Процесс одного элемента — вынесено в отдельный метод для ясности
+    public static decimal ProcessItem(decimal value)
+    {
+        double v = (double)value;
+        double result = Math.Sqrt(v) * Math.Log10(v + 1.0);
+
+        return (decimal)result;
     }
 
-    // 1) ThreadPool-based processing: делим на 8 частей и используем ThreadPool
+    // Использует ThreadPool и CountdownEvent для синхронизации
     public decimal[] ProcessDataWithThreadPool(decimal[] data)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
         int length = data.Length;
         decimal[] result = new decimal[length];
 
-        int partitions = 8;
-        if (partitions > length) partitions = length;
+        int parts = GetPartsCount();
+        int partSize = length / parts;
+        var countdown = new CountdownEvent(parts);
+        Exception? capturedException = null;
 
-        int baseSize = length / partitions;
-        int remainder = length % partitions;
-
-        using (var countdown = new CountdownEvent(partitions))
+        for (int p = 0; p < parts; p++)
         {
-            int offset = 0;
-            for (int p = 0; p < partitions; p++)
+            int start = p * partSize;
+            int end = (p == parts - 1) ? length : start + partSize; // последний кусок может быть больше
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                int size = baseSize + (p < remainder ? 1 : 0);
-                int start = offset;
-                offset += size;
-
-                ThreadPool.QueueUserWorkItem(state =>
+                try
                 {
-                    try
+                    // Обрабатываем свою часть и записываем в результирующий массив.
+                    // Запись безопасна, так как сегменты не пересекаются.
+                    for (int i = start; i < end; i++)
                     {
-                        ProcessPartData(data, result, start, size);
+                        result[i] = ProcessItem(data[i]);
                     }
-                    finally
-                    {
-                        countdown.Signal();
-                    }
-                });
-            }
-
-            // Подождём завершения всех рабочих задач
-            countdown.Wait();
+                }
+                catch (Exception ex)
+                {
+                    // Сохраняем первую ошибку, остальные потоки могут продолжать
+                    Interlocked.CompareExchange(ref capturedException, ex, null);
+                }
+                finally
+                {
+                    countdown.Signal();
+                }
+            });
         }
 
+        // Ждём завершения всех задач
+        countdown.Wait();
+        if (capturedException != null) throw capturedException;
         return result;
     }
 
-    // 2) TAP: возвращаем Task<decimal[]>, используем Task.Run и объединяем результаты
+    // TAP: Task-based async pattern. Использует Task.Run и Task.WhenAll.
     public Task<decimal[]> ProcessDataAsync(decimal[] data)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
         int length = data.Length;
         decimal[] result = new decimal[length];
 
-        // Решаем деление на N равных частей, где N = Environment.ProcessorCount * 2 (пример разумного дефолта)
-        int partitions = Math.Max(1, Environment.ProcessorCount * 2);
-        if (partitions > length) partitions = length;
-        int baseSize = length / partitions;
-        int remainder = length % partitions;
+        int parts = GetPartsCount();
+        int partSize = length / parts;
+        var tasks = new List<Task>(parts);
 
-        var tasks = new List<Task>();
-
-        int offset = 0;
-        for (int p = 0; p < partitions; p++)
+        for (int p = 0; p < parts; p++)
         {
-            int size = baseSize + (p < remainder ? 1 : 0);
-            int start = offset;
-            offset += size;
-
-            // Task.Run выполняет работу в фоновом потоке (может использовать ThreadPool)
-            tasks.Add(Task.Run(() => ProcessPartData(data, result, start, size)));
+            int start = p * partSize;
+            int end = (p == parts - 1) ? length : start + partSize;
+            // Каждая задача выполняется в фоновой нише через Task.Run
+            tasks.Add(Task.Run(() =>
+            {
+                for (int i = start; i < end; i++)
+                {
+                    result[i] = ProcessItem(data[i]);
+                }
+            }));
         }
 
-        return Task.WhenAll(tasks).ContinueWith(t =>
-        {
-            if (t.IsFaulted)
-            {
-                // Пробрасываем первую ошибку (Task.Exception содержит AggregateException)
-                throw t.Exception!;
-            }
-            return result;
-        }, TaskContinuationOptions.ExecuteSynchronously);
+        return Task.WhenAll(tasks).ContinueWith(_ => result);
     }
 
-    // 3) APM: BeginProcessData / EndProcessData реализация с использованием ThreadPool и IAsyncResult
-    private class ProcessDataAsyncResult : IAsyncResult
+    // --- APM (Begin/End) ---
+    // Вспомогательный класс IAsyncResult
+    private class ProcessAsyncResult : IAsyncResult
     {
-        private readonly ManualResetEvent _waitHandle;
-        public decimal[]? Result { get; set; }
-        public Exception? Exception { get; set; }
-        public AsyncCallback? Callback { get; }
-        public object? AsyncStateObj { get; }
-
-        public ProcessDataAsyncResult(object? state, AsyncCallback? callback)
-        {
-            AsyncStateObj = state;
-            Callback = callback;
-            _waitHandle = new ManualResetEvent(false);
-        }
-
-        public object AsyncState => AsyncStateObj!;
-        public WaitHandle AsyncWaitHandle => _waitHandle;
+        private readonly ManualResetEvent _waitHandle = new(false);
+        public decimal[]? Result;
+        public Exception? Exception;
+        public AsyncCallback? Callback;
+        public object? AsyncState { get; }
         public bool CompletedSynchronously => false;
         public bool IsCompleted { get; private set; }
+        public WaitHandle AsyncWaitHandle => _waitHandle;
+
+        public ProcessAsyncResult(object? state)
+        {
+            AsyncState = state;
+        }
 
         public void SetCompleted()
         {
@@ -126,53 +116,67 @@ public class TaskProcessor
             _waitHandle.Set();
             Callback?.Invoke(this);
         }
-
-        public void Dispose() => _waitHandle.Dispose();
     }
 
+    // BeginProcessData: стартует обработку в ThreadPool и возвращает IAsyncResult
     public IAsyncResult BeginProcessData(decimal[] data, AsyncCallback? callback, object? state)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
-        var asyncResult = new ProcessDataAsyncResult(state, callback);
+        var ar = new ProcessAsyncResult(state)
+        {
+            Callback = callback
+        };
 
+        // Обработка в ThreadPool — полностью в рамках APM (без async/await)
         ThreadPool.QueueUserWorkItem(_ =>
         {
             try
             {
-                decimal[] res = ProcessDataWithThreadPool(data); // Reuse ThreadPool method (safe)
-                asyncResult.Result = res;
+                var res = new decimal[data.Length];
+                for (int i = 0; i < data.Length; i++)
+                {
+                    res[i] = ProcessItem(data[i]);
+                }
+                ar.Result = res;
             }
             catch (Exception ex)
             {
-                asyncResult.Exception = ex;
+                ar.Exception = ex;
             }
             finally
             {
-                asyncResult.SetCompleted();
+                ar.SetCompleted();
             }
         });
 
-        return asyncResult;
+        return ar;
     }
 
+    // EndProcessData: ожидает завершения операции и возвращает результат или пробрасывает исключение
     public decimal[] EndProcessData(IAsyncResult asyncResult)
     {
-        if (asyncResult == null) throw new ArgumentNullException(nameof(asyncResult));
-        if (asyncResult is not ProcessDataAsyncResult r) throw new ArgumentException("Invalid IAsyncResult", nameof(asyncResult));
+        if (asyncResult is not ProcessAsyncResult ar) throw new ArgumentException("Invalid IAsyncResult", nameof(asyncResult));
+        // Ждём сигнала
+        ar.AsyncWaitHandle.WaitOne();
+        if (ar.Exception != null) throw ar.Exception;
+        return ar.Result ?? Array.Empty<decimal>();
+    }
 
-        // Ждём завершения, если не завершено
-        if (!r.IsCompleted)
+    public decimal[] ProcessDataSequential(decimal[] data)
+    {
+        if (data == null) throw new ArgumentNullException(nameof(data));
+
+        var result = new decimal[data.Length];
+
+        for (int i = 0; i < data.Length; i++)
         {
-            r.AsyncWaitHandle.WaitOne();
+            // Временное приведение к double для Math.*; результат обратно в decimal
+            double v = (double)data[i];
+            double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
+            result[i] = (decimal)r;
         }
 
-        if (r.Exception != null) throw r.Exception;
-        return r.Result ?? Array.Empty<decimal>();
+        return result;
     }
 
-    // Обёртка, как требовалось: ProcessDataWithAPM
-    public IAsyncResult ProcessDataWithAPM(decimal[] data, AsyncCallback? callback, object? state)
-    {
-        return BeginProcessData(data, callback, state);
-    }
 }

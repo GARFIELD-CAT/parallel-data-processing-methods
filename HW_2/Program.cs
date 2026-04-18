@@ -1,86 +1,82 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
-
 
 class Program
 {
-    static void Main(string[] args)
+    static async Task Main()
     {
         const int dataSize = 10_000_000;
-        const int randomSeed = 42;
+        int randomSeed = 42;
 
         // Генерация данных
+        Console.WriteLine("Генерация данных...");
         decimal[] data = GenerateData(dataSize, randomSeed);
 
         var processor = new TaskProcessor();
 
         // Последовательная обработка
         var sw = Stopwatch.StartNew();
-        decimal[] seq = ProcessDataSequential(data);
+        var seqRes = processor.ProcessDataSequential(data);
         sw.Stop();
         long seqMs = sw.ElapsedMilliseconds;
-        Console.WriteLine($"Последовательная обработка: {seqMs} мс");
+        await AsyncLogger.LogAsync($"Finished ProcessDataSequential at {DateTime.Now:u}");
 
         // ThreadPool обработка
         sw.Restart();
-        decimal[] tp = processor.ProcessDataWithThreadPool(data);
+        var tpRes = processor.ProcessDataWithThreadPool(data);
         sw.Stop();
         long tpMs = sw.ElapsedMilliseconds;
-        Console.WriteLine($"ThreadPool обработка: {tpMs} мс");
+        await AsyncLogger.LogAsync($"Finished ProcessDataWithThreadPool at {DateTime.Now:u}");
 
-        // TAP обработка
+        // TAP обработка (Task-based)
         sw.Restart();
-        decimal[] tap = processor.ProcessDataAsync(data).GetAwaiter().GetResult();
+        var tapTask = processor.ProcessDataAsync(data);
+        tapTask.Wait();
+        var tapRes = tapTask.Result;
         sw.Stop();
         long tapMs = sw.ElapsedMilliseconds;
-        Console.WriteLine($"TAP обработка: {tapMs} мс");
+        await AsyncLogger.LogAsync($"Finished ProcessDataAsync at {DateTime.Now:u}");
 
-        // APM обработка
+        // APM обработка (Begin/End)
         sw.Restart();
-        IAsyncResult ar = processor.ProcessDataWithAPM(data, null, null);
-        // Ожидаем
-        var result = ar.AsyncWaitHandle;
-        result.WaitOne();
-        decimal[] apm = processor.EndProcessData(ar);
+        var asyncResult = processor.BeginProcessData(data, null, null);
+        var apmRes = processor.EndProcessData(asyncResult);
         sw.Stop();
         long apmMs = sw.ElapsedMilliseconds;
-        Console.WriteLine($"APM обработка: {apmMs} мс");
+        await AsyncLogger.LogAsync($"Finished APM at {DateTime.Now:u}");
 
-        // Сравнение результатов (точность 0.0001)
-        bool equalTp = CompareArrays(seq, tp);
-        bool equalTap = CompareArrays(seq, tap);
-        bool equalApm = CompareArrays(seq, apm);
+        // Сравнение
+        bool equalTp = seqRes.SequenceEqual(tpRes);
+        bool equalTap = seqRes.SequenceEqual(tapRes);
+        bool equalApm = seqRes.SequenceEqual(apmRes);
         bool allEqual = equalTp && equalTap && equalApm;
 
-        double speedupTp = Math.Round((double)seqMs / Math.Max(1, tpMs), 2);
-        double speedupTap = Math.Round((double)seqMs / Math.Max(1, tapMs), 2);
-        double speedupApm = Math.Round((double)seqMs / Math.Max(1, apmMs), 2);
+        Console.WriteLine();
+        Console.WriteLine("=== Результаты обработки ===");
+        Console.WriteLine($"Размер данных: {dataSize:N0} элементов");
+        Console.WriteLine($"Последовательная обработка: {seqMs} мс");
+        Console.WriteLine($"ThreadPool обработка: {tpMs} мс");
+        Console.WriteLine($"TAP обработка: {tapMs} мс");
+        Console.WriteLine($"APM обработка: {apmMs} мс");
+        double SafeDiv(long a, long b) => b == 0 ? 0.0 : (double)a / b;
+        Console.WriteLine($"Ускорение ThreadPool: {SafeDiv(seqMs, tpMs):F2}x");
+        Console.WriteLine($"Ускорение TAP: {SafeDiv(seqMs, tapMs):F2}x");
+        Console.WriteLine($"Ускорение APM: {SafeDiv(seqMs, apmMs):F2}x");
+        Console.WriteLine($"Результаты совпадают: {(allEqual ? "Да" : "Нет")}");
 
-        string summary = $@"
-=== Результаты обработки ===
-Размер данных: {dataSize:N0} элементов
-Последовательная обработка: {seqMs} мс
-ThreadPool обработка: {tpMs} мс
-TAP обработка: {tapMs} мс
-APM обработка: {apmMs} мс
-Ускорение ThreadPool: {speedupTp}x
-Ускорение TAP: {speedupTap}x
-Ускорение APM: {speedupApm}x
-Результаты совпадают: {(allEqual ? "Да" : "Нет")}
-";
-        Console.WriteLine(summary);
+        // Пример логирования (асинхронно) — логи складываем в файл results.log
+        await AsyncLogger.LogAsync($"Finished processing at {DateTime.Now:u}. AllEqual={allEqual}");
 
-        // Логируем асинхронно время (пример)
-        AsyncLogger.LogAsync($"Summary: seq={seqMs} мс, tp={tpMs} мс, tap={tapMs} мс, apm={apmMs} мс").GetAwaiter().GetResult();
+        // Пример APM-логирования с callback
+        AsyncLogger.LogWithCallback($"Finished APM callback at {DateTime.Now:u}", () =>
+        {
+            Console.WriteLine("APM логирование завершено (callback).");
+        });
 
-        // Пример логирования с callback (APM-style)
-        AsyncLogger.LogWithCallback("Completed APM log entry", () => Console.WriteLine("Log callback invoked."));
-
-        // Убедимся, что сообщение с callback успеет записаться
-        Thread.Sleep(200);
+        Console.WriteLine("Готово.");
     }
 
     static decimal[] GenerateData(int dataSize, int randomSeed)
@@ -95,36 +91,5 @@ APM обработка: {apmMs} мс
         }
 
         return data;
-    }
-
-    // Простая последовательная обработка
-    public static decimal[] ProcessDataSequential(decimal[] data)
-    {
-        if (data == null) throw new ArgumentNullException(nameof(data));
-
-        int n = data.Length;
-        var result = new decimal[n];
-
-        for (int i = 0; i < n; i++)
-        {
-            // Временный приведение к double для Math.*; результат обратно в decimal
-            double v = (double)data[i];
-            double r = Math.Sqrt(v) * Math.Log10(v + 1.0);
-            result[i] = (decimal)r;
-        }
-
-        return result;
-    }
-
-
-    static bool CompareArrays(decimal[] a, decimal[] b, decimal tolerance = 0.0001m)
-    {
-        if (a == null || b == null) return false;
-        if (a.Length != b.Length) return false;
-        for (int i = 0; i < a.Length; i++)
-        {
-            if (Math.Abs(a[i] - b[i]) > tolerance) return false;
-        }
-        return true;
     }
 }
