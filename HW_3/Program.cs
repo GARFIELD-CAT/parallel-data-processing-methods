@@ -1,81 +1,85 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 
 class Program
 {
-    static void Main()
+    static void Main(string[] args)
     {
-        const int randomSeed = 42;
-        const int dataSize = 1000;
+        // ------------------ Тестирование обработки транзакций ------------------
+        const decimal initialBalance = 10000;
+        int randomSeed = 42;
+        const int transactionCount = 1000;
+        Random rnd = new Random(42);
 
-        // Генерация данных
-        List<decimal> transactions = GenerateData(dataSize, randomSeed);
-        var expectedSum = transactions.Sum();
+        // Генерация 1000 транзакций: 500 депозитов, 500 снятий, суммы от 10 до 1000
+        List<decimal> transactions = GenerateData(transactionCount, randomSeed);
+        decimal expectedBalance = initialBalance + transactions.Sum();
+        Console.WriteLine($"Ожидаемый баланс после транзакций: {expectedBalance:F2}\n");
 
-        Console.WriteLine($"Ожидаемый итоговый баланс: {expectedSum:F2}");
+        var accountNoSync = new BankAccount(initialBalance);
+        Console.WriteLine($"accountNoSync: {accountNoSync.Balance}");
+        SynchronizationBenchmark benchmark = new SynchronizationBenchmark(accountNoSync, transactions);
 
-        decimal expected = 0;
-        foreach (var t in transactions) expected += t;
+        // Тест без синхронизации
+        var (timeNoSync, balanceNoSync, correctNoSync) =
+            benchmark.BenchmarkNoSync(accountNoSync, transactions);
 
+        // Тест с lock
+        var accountLock = new BankAccount(initialBalance);
+        var (timeLock, balanceLock, correctLock) =
+            benchmark.BenchmarkWithLock(accountLock, transactions);
+
+        // Тест с Monitor
+        var accountMonitor = new BankAccount(initialBalance);
+        var (timeMonitor, balanceMonitor, correctMonitor) =
+            benchmark.BenchmarkWithMonitor(accountMonitor, transactions);
+
+        // Расчёт накладных расходов в процентах относительно времени без синхронизации
+        double overheadLock = timeNoSync == 0 ? 0 : (double)(timeLock - timeNoSync) / timeNoSync * 100;
+        double overheadMonitor = timeNoSync == 0 ? 0 : (double)(timeMonitor - timeNoSync) / timeNoSync * 100;
+
+        // Вывод сводной статистики
         Console.WriteLine("=== Результаты тестирования синхронизации ===");
-        Console.WriteLine($"Количество транзакций: {dataSize}");
+        Console.WriteLine($"Количество транзакций: {transactionCount}");
 
-        // Без синхронизации
-        var accNo = new BankAccount(0);
-        var benchNo = SynchronizationBenchmark.BenchmarkNoSync(accNo, transactions, expected);
-        Console.WriteLine("Без синхронизации:");
-        Console.WriteLine($"  Время: {benchNo.ms} мс");
-        Console.WriteLine($"  Итоговый баланс: {benchNo.finalBalance}");
-        Console.WriteLine($"  Корректность: {(benchNo.correct ? "Да" : "Нет")}");
-        Console.WriteLine($"  Гонки данных: {(benchNo.correct ? "Нет" : "Да")}");
+        Console.WriteLine("\nБез синхронизации:");
+        Console.WriteLine($"  Время: {timeNoSync} мс");
+        Console.WriteLine($"  Итоговый баланс: {balanceNoSync:F2}");
+        Console.WriteLine($"  Корректность: {(correctNoSync ? "Да" : "Нет")}");
+        Console.WriteLine($"  Гонки данных: {(correctNoSync ? "Нет" : "Да")}");
 
-        // С использованием lock
-        var accLock = new BankAccount(0);
-        var benchLock = SynchronizationBenchmark.BenchmarkWithLock(accLock, transactions, expected);
         Console.WriteLine("\nС использованием lock:");
-        Console.WriteLine($"  Время: {benchLock.ms} мс");
-        Console.WriteLine($"  Итоговый баланс: {benchLock.finalBalance}");
-        Console.WriteLine($"  Корректность: {(benchLock.correct ? "Да" : "Нет")}");
-        double overheadLock = (benchLock.ms - benchNo.ms) > 0 ? (benchLock.ms - benchNo.ms) / (double)Math.Max(1, benchNo.ms) * 100.0 : 0.0;
-        Console.WriteLine($"  Накладные расходы: {overheadLock:F2}%");
+        Console.WriteLine($"  Время: {timeLock} мс");
+        Console.WriteLine($"  Итоговый баланс: {balanceLock:F2}");
+        Console.WriteLine($"  Корректность: {(correctLock ? "Да" : "Нет")}");
+        Console.WriteLine($"  Накладные расходы: {overheadLock:F1}%");
 
-        // С использованием Monitor
-        var accMon = new BankAccount(0);
-        var benchMon = SynchronizationBenchmark.BenchmarkWithMonitor(accMon, transactions, expected);
         Console.WriteLine("\nС использованием Monitor:");
-        Console.WriteLine($"  Время: {benchMon.ms} мс");
-        Console.WriteLine($"  Итоговый баланс: {benchMon.finalBalance}");
-        Console.WriteLine($"  Корректность: {(benchMon.correct ? "Да" : "Нет")}");
-        double overheadMon = (benchMon.ms - benchNo.ms) > 0 ? (benchMon.ms - benchNo.ms) / (double)Math.Max(1, benchNo.ms) * 100.0 : 0.0;
-        Console.WriteLine($"  Накладные расходы: {overheadMon:F2}%");
+        Console.WriteLine($"  Время: {timeMonitor} мс");
+        Console.WriteLine($"  Итоговый баланс: {balanceMonitor:F2}");
+        Console.WriteLine($"  Корректность: {(correctMonitor ? "Да" : "Нет")}");
+        Console.WriteLine($"  Накладные расходы: {overheadMonitor:F1}%");
 
-        // Сравнение производительности
-        double speedupLockVsMon = benchMon.ms > 0 ? benchLock.ms / (double)benchMon.ms : 0.0;
+        // Сравнение производительности lock vs Monitor
+        double speedup = timeMonitor == 0 ? 0 : (double)timeLock / timeMonitor;
         Console.WriteLine("\nСравнение производительности:");
-        Console.WriteLine($"  Ускорение lock vs Monitor: {speedupLockVsMon:F2}x");
-        Console.WriteLine($"  Накладные расходы lock: {overheadLock:F2}%");
-        Console.WriteLine($"  Накладные расходы Monitor: {overheadMon:F2}%");
+        Console.WriteLine($"  Ускорение lock vs Monitor: {speedup:F2}x");
+        Console.WriteLine($"  Накладные расходы lock: {overheadLock:F1}%");
+        Console.WriteLine($"  Накладные расходы Monitor: {overheadMonitor:F1}%");
 
-        // Тест перевода и deadlock
-        Console.WriteLine("\n=== Тест перевода/deadlock ===");
-        var accounts = new List<BankAccount>();
-        for (int i = 0; i < 10; i++) accounts.Add(new BankAccount(1000)); // стартовый баланс
+        // ------------------ Тестирование переводов и deadlock ------------------
+        const int accountsCount = 10;
+        List<BankAccount> transferAccounts = new List<BankAccount>();
 
-        TransactionProcessor.ProcessConcurrentTransfers(accounts, 1000, 42);
+        for (int i = 0; i < accountsCount; i++)
+            transferAccounts.Add(new BankAccount(initialBalance));
 
-        // Сводная статистика по балансам
-        decimal total = 0;
-        foreach (var acc in accounts) total += acc.Balance;
+        TransactionProcessor.ProcessConcurrentTransfers(transferAccounts, transactionCount);
 
-        Console.WriteLine("\nИтоговые балансы после переводов:");
-        for (int i = 0; i < accounts.Count; i++)
-        {
-            Console.WriteLine($"  Account#{accounts[i].Id}: {accounts[i].Balance}");
-        }
-        Console.WriteLine($"Общая сумма: {total}");
+        // ------------------ Вывод итогового сравнения (из метода CompareAllApproaches) ------------------
+        Console.WriteLine("\n");
+        benchmark.CompareAllApproaches();
     }
-
 
     static List<decimal> GenerateData(int dataSize, int randomSeed)
     {

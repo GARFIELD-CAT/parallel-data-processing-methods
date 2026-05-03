@@ -1,50 +1,68 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 
-public static class SynchronizationBenchmark
+
+public class SynchronizationBenchmark
 {
-    public static (long ms, decimal finalBalance, bool correct) BenchmarkNoSync(BankAccount account, List<decimal> transactions, decimal expected)
+    private BankAccount _account;
+    private List<decimal> _transactions;
+
+    public SynchronizationBenchmark(BankAccount account, List<decimal> transactions)
     {
-        var sw = Stopwatch.StartNew();
-        var result = TransactionProcessor.ProcessTransactionsConcurrently(account, transactions);
-        sw.Stop();
-        return (sw.ElapsedMilliseconds, result, result == expected);
+        _account = account;
+        _transactions = transactions;
     }
 
-    public static (long ms, decimal finalBalance, bool correct) BenchmarkWithLock(BankAccount account, List<decimal> transactions, decimal expected)
+    public (long timeMs, decimal finalBalance, bool isCorrect) BenchmarkNoSync(
+        BankAccount account, List<decimal> transactions)
     {
-        var sw = Stopwatch.StartNew();
-        var result = TransactionProcessor.ProcessTransactionsWithLock(account, transactions);
+        decimal expected = account.Balance + transactions.Sum();
+
+        Stopwatch sw = Stopwatch.StartNew();
+        TransactionProcessor.ProcessTransactionsConcurrently(account, transactions);
         sw.Stop();
-        return (sw.ElapsedMilliseconds, result, result == expected);
+
+        return (sw.ElapsedMilliseconds, account.Balance, account.Balance == expected);
     }
 
-    public static (long ms, decimal finalBalance, bool correct) BenchmarkWithMonitor(BankAccount account, List<decimal> transactions, decimal expected)
+    public (long timeMs, decimal finalBalance, bool isCorrect) BenchmarkWithLock(
+        BankAccount account, List<decimal> transactions)
     {
-        var sw = Stopwatch.StartNew();
-        var result = TransactionProcessor.ProcessTransactionsWithMonitor(account, transactions);
+        decimal expected = account.Balance + transactions.Sum();
+
+        Stopwatch sw = Stopwatch.StartNew();
+        TransactionProcessor.ProcessTransactionsWithLock(account, transactions);
         sw.Stop();
-        return (sw.ElapsedMilliseconds, result, result == expected);
+
+        return (sw.ElapsedMilliseconds, account.Balance, account.Balance == expected);
     }
 
-    public static void CompareAllApproaches(List<decimal> transactions)
+    public (long timeMs, decimal finalBalance, bool isCorrect) BenchmarkWithMonitor(
+        BankAccount account, List<decimal> transactions)
     {
-        // Создаём новые аккаунты для каждого теста, чтобы не портить состояние
-        decimal expected = 0m;
-        foreach (var t in transactions) expected += t;
+        decimal expected = account.Balance + transactions.Sum();
 
-        var a1 = new BankAccount(0m);
-        var a2 = new BankAccount(0m);
-        var a3 = new BankAccount(0m);
+        Stopwatch sw = Stopwatch.StartNew();
+        TransactionProcessor.ProcessTransactionsWithMonitor(account, transactions);
+        sw.Stop();
 
-        var rNo = BenchmarkNoSync(a1, transactions, expected);
-        var rLock = BenchmarkWithLock(a2, transactions, expected);
-        var rMon = BenchmarkWithMonitor(a3, transactions, expected);
+        return (sw.ElapsedMilliseconds, account.Balance, account.Balance == expected);
+    }
 
-        Console.WriteLine("=== Сравнение подходов к синхронизации ===");
-        Console.WriteLine($"Без синхронизации: {rNo.ms} мс, результат: {(rNo.correct ? "корректный" : "некорректный")}");
-        Console.WriteLine($"С использованием lock: {rLock.ms} мс, результат: {(rLock.correct ? "корректный" : "некорректный")}");
-        Console.WriteLine($"С использованием Monitor: {rMon.ms} мс, результат: {(rMon.correct ? "корректный" : "некорректный")}");
+    public void CompareAllApproaches()
+    {
+        Console.WriteLine("=== Сравнение подходов к синхронизации ===\n");
+
+        // Бенчмарки
+        var (timeNoSync, _, correctNoSync) = BenchmarkNoSync(_account, _transactions);
+        var (timeLock, _, correctLock) = BenchmarkWithLock(_account, _transactions);
+        var (timeMonitor, _, correctMonitor) = BenchmarkWithMonitor(_account, _transactions);
+
+        // Вывод результатов
+        Console.WriteLine($"Без синхронизации: {timeNoSync} мс, результат: {(correctNoSync ? "корректный" : "некорректный")}");
+        Console.WriteLine($"С использованием lock: {timeLock} мс, результат: {(correctLock ? "корректный" : "некорректный")}");
+        Console.WriteLine($"С использованием Monitor: {timeMonitor} мс, результат: {(correctMonitor ? "корректный" : "некорректный")}");
     }
 }
