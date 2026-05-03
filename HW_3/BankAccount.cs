@@ -6,8 +6,14 @@ public class BankAccount
     private readonly object _lock = new object();
     private decimal _balance;
 
+    private static long _nextId = 0;
+
+    // Уникальный идентификатор данного счёта.
+    private readonly long _id;
+
     public BankAccount(decimal initialBalance)
     {
+        _id = Interlocked.Increment(ref _nextId);
         _balance = initialBalance;
     }
 
@@ -55,17 +61,15 @@ public class BankAccount
         }
     }
 
-    /// <summary>
     /// Перевод с использованием lock. Важно: блокировка захватывается на текущем счете (this),
     /// но не на целевом счете. Это может привести к взаимной блокировке (deadlock),
     /// если другой поток попытается перевести средства в обратном направлении.
-    /// </summary>
     public void TransferWithLock(BankAccount target, decimal amount)
     {
         lock (_lock)
         {
-            WithdrawWithLock(amount);   // уже внутри lock, повторный захват разрешён (реентерабельность)
-            target.DepositWithLock(amount); // но здесь захватывается блокировка target, что опасно.
+            WithdrawWithLock(amount);
+            target.DepositWithLock(amount);
         }
     }
 
@@ -120,11 +124,10 @@ public class BankAccount
     public void SafeTransferWithMonitor(BankAccount target, decimal amount)
     {
         // Упорядочиваем объекты, чтобы избежать циклического ожидания.
-        // Если хэш-коды совпадают, используем дополнительную блокировку-арбитр.
         object firstLock = this._lock;
         object secondLock = target._lock;
 
-        if (this._lock.GetHashCode() > target._lock.GetHashCode())
+        if (this._id > target._id)
         {
             firstLock = target._lock;
             secondLock = this._lock;
