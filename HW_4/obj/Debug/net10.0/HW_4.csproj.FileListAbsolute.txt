@@ -1,0 +1,15 @@
+D:\homework\parallel-data-processing-methods\HW_4\bin\Debug\net10.0\HW_4.exe
+D:\homework\parallel-data-processing-methods\HW_4\bin\Debug\net10.0\HW_4.deps.json
+D:\homework\parallel-data-processing-methods\HW_4\bin\Debug\net10.0\HW_4.runtimeconfig.json
+D:\homework\parallel-data-processing-methods\HW_4\bin\Debug\net10.0\HW_4.dll
+D:\homework\parallel-data-processing-methods\HW_4\bin\Debug\net10.0\HW_4.pdb
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.GeneratedMSBuildEditorConfig.editorconfig
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.AssemblyInfoInputs.cache
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.AssemblyInfo.cs
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.csproj.CoreCompileInputs.cache
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.sourcelink.json
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.dll
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\refint\HW_4.dll
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.pdb
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\HW_4.genruntimeconfig.cache
+D:\homework\parallel-data-processing-methods\HW_4\obj\Debug\net10.0\ref\HW_4.dll
