@@ -116,6 +116,6 @@ public class LibraryCatalog
         return (false, new List<(string, string)>());
     }
 
-    // Для корректного завершения приложения
+    // Освобождаем ресурсы
     public void Dispose() => _rw.Dispose();
 }

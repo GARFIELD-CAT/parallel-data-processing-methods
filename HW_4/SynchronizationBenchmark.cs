@@ -6,7 +6,7 @@ using System.Threading;
 public static class SynchronizationBenchmark
 {
     // ReaderWriterLockSlim benchmark: создаём readerCount читателей и writerCount писателей.
-    public static (long readMs, long writeMs, long totalMs) BenchmarkReaderWriterLock(LibraryCatalog catalog, int readerCount, int writerCount, int opsPerReader = 100, int opsPerWriter = 20)
+    public static (long readMs, long writeMs, long totalMs) BenchmarkReaderWriterLock(LibraryCatalog catalog, int readerCount, int writerCount)
     {
         var rand = new Random(42);
         var readers = new List<Thread>();
@@ -22,11 +22,8 @@ public static class SynchronizationBenchmark
             var th = new Thread(() =>
             {
                 var sw = Stopwatch.StartNew();
-                for (int j = 0; j < opsPerReader; j++)
-                {
-                    var k = rand.Next(0, 1000).ToString();
-                    catalog.SearchBooks(k);
-                }
+                var k = rand.Next(0, 1000).ToString();
+                catalog.SearchBooks(k);
                 sw.Stop();
                 Interlocked.Add(ref readTime, sw.ElapsedMilliseconds);
             })
@@ -41,14 +38,11 @@ public static class SynchronizationBenchmark
             var th = new Thread(() =>
             {
                 var sw = Stopwatch.StartNew();
-                for (int j = 0; j < opsPerWriter; j++)
-                {
-                    string title = $"W{writerId}-{j}-{rand.Next(100000)}";
-                    catalog.AddBook(title, "Author");
-                    // иногда обновляем
-                    if (j % 5 == 0)
-                        catalog.UpdateBook(title, title + "-u", "AuthorU");
-                }
+                string title = $"W{writerId}-{rand.Next(100000)}";
+                catalog.AddBook(title, "Author");
+                // иногда обновляем
+                if (i % 5 == 0)
+                    catalog.UpdateBook(title, title + "-u", "AuthorU");
                 sw.Stop();
                 Interlocked.Add(ref writeTime, sw.ElapsedMilliseconds);
             })
@@ -121,10 +115,14 @@ public static class SynchronizationBenchmark
                 bool ok = CrossProcessSync.TryExecuteWithGlobalLock(mutexName, () =>
                 {
                     // короткая критическая секция
-                    Thread.Sleep(rand.Next(1, 5));
+                    Thread.Sleep(10);
                 }, timeoutMs);
 
-                if (ok) Interlocked.Increment(ref success);
+                if (ok)
+                {
+                    Interlocked.Increment(ref success);
+                }
+
             })
             { IsBackground = true };
             threads.Add(th);
@@ -140,7 +138,7 @@ public static class SynchronizationBenchmark
     {
         Console.WriteLine("=== Сравнение примитивов синхронизации ===");
 
-        var rw = BenchmarkReaderWriterLock(catalog, 50, 10);
+        var rw = BenchmarkReaderWriterLock(catalog, 100, 10);
         Console.WriteLine("ReaderWriterLockSlim:");
         Console.WriteLine($"  Чтение: {rw.readMs} мс");
         Console.WriteLine($"  Запись: {rw.writeMs} мс");
@@ -152,9 +150,18 @@ public static class SynchronizationBenchmark
         Console.WriteLine($"  Успешные запросы: {sem.success}");
         Console.WriteLine($"  Неудачные запросы: {sem.fail}");
 
-        var mu = BenchmarkMutex(mutexName, 20, 500);
+        var mu = BenchmarkMutex(mutexName, 100, 500);
         Console.WriteLine("\nMutex:");
         Console.WriteLine($"  Время выполнения: {mu.totalMs} мс");
         Console.WriteLine($"  Успешные операции: {mu.success}");
+
+        double overheadRw = rw.totalMs > 0 ? (rw.totalMs - rw.totalMs) * 100.0 / rw.totalMs : 0;
+        double overheadSem = rw.totalMs > 0 ? (sem.totalMs - rw.totalMs) * 100.0 / rw.totalMs : 0;
+        double overheadMutex = rw.totalMs > 0 ? (mu.totalMs - rw.totalMs) * 100.0 / rw.totalMs : 0;
+
+        Console.WriteLine("\nСравнение производительности:");
+        Console.WriteLine($"  Накладные расходы ReaderWriterLockSlim: {overheadRw:F1}%");
+        Console.WriteLine($"  Накладные расходы SemaphoreSlim: {overheadSem:F1}%");
+        Console.WriteLine($"  Накладные расходы Mutex: {overheadMutex:F1}%");
     }
 }
