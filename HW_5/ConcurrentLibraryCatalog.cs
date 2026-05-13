@@ -69,11 +69,8 @@ public class ConcurrentLibraryCatalog
         Books.Clear();
     }
 
-    public Book TryGetBook(string title)
+    public bool TryGetBook(string title, out Book book)
     {
-        if (Books.TryGetValue(title, out Book book))
-            return book;
-
-        return null;
+        return Books.TryGetValue(title, out book);
     }
 }

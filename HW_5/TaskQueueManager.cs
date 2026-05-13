@@ -44,7 +44,7 @@ public class TaskQueueManager : IDisposable
         }
     }
 
-    public async Task<int> ProcessTasks(int workerCount)
+    public Task ProcessTasks(int workerCount)
     {
         _workers.Clear();
 
@@ -72,8 +72,7 @@ public class TaskQueueManager : IDisposable
             _workers.Add(worker);
         }
 
-        await Task.WhenAll(_workers);
-        return 0;
+        return Task.WhenAll(_workers);
     }
 
     public void CompleteAdding()

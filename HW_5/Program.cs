@@ -16,7 +16,7 @@ class Program
 
         var rand = new Random(randomSeed);
 
-        // Prepare test data
+        // Подготовка тестовых данных для каталога
         var catalog = new ConcurrentLibraryCatalog();
 
         for (int i = 0; i < booksCount; i++)
@@ -26,51 +26,51 @@ class Program
             catalog.AddBook(title, author);
         }
 
-        // ConcurrentLibraryCatalog test
         var benchmark = new CollectionBenchmark();
 
+        // Тестирование ConcurrentDictionary
         var (timeConcurrent, succOps, failOps) = benchmark.BenchmarkConcurrentDictionary(booksCount, randomSeed);
         var (timeSync, succSync) = benchmark.BenchmarkSynchronizedDictionary(booksCount, randomSeed);
 
-        var cdThroughput = succOps / (timeConcurrent / 1000.0);
-        var sdThroughput = succSync / (timeSync / 1000.0);
-        var speedup = timeConcurrent > 0 ? Math.Round((double)timeSync / (double)timeConcurrent, 2) : double.NaN;
-        var syncOverheadPct = timeSync > 0 ? Math.Round(((double)(timeSync - timeConcurrent) / timeSync) * 100.0, 2) : double.NaN;
+        double cdThroughput = succOps / (timeConcurrent / 1000.0);
+        double sdThroughput = succSync / (timeSync / 1000.0);
+        double speedup = timeConcurrent > 0 ? Math.Round((double)timeSync / timeConcurrent, 2) : double.NaN;
+        double syncOverheadPct = timeSync > 0 ? Math.Round(((double)(timeSync - timeConcurrent) / timeSync) * 100.0, 2) : double.NaN;
 
-        // BlockingCollection test
+        // Тестирование BlockingCollection
         int boundedCapacity = 200;
+        int workerCount = 10;
         var queueManager = new TaskQueueManager(boundedCapacity);
-
         for (int i = 0; i < tasksCount; i++)
         {
             int local = i;
+            // Имитация полезной нагрузки
             queueManager.AddTask($"Task #{i}", () => { Thread.SpinWait(5000 + rand.Next(0, 1000)); });
         }
 
-        var sw = Stopwatch.StartNew();
-        var (timeBlocking, processed) = benchmark.BenchmarkBlockingCollection(queueManager, tasksCount, workerCount: 10);
-        sw.Stop();
+        var (timeBlocking, processed) = benchmark.BenchmarkBlockingCollection(queueManager, workerCount, tasksCount);
 
-        // ConcurrentCache test
+        // Тестирование ConcurrentCache
         var cache = new ConcurrentCache();
+
         for (int i = 0; i < cacheCount; i++)
             cache.AddToCache($"key_{i % 50}", new { Index = i });
 
         var (timeCache, cacheSuccess) = benchmark.BenchmarkConcurrentCache(cacheCount, randomSeed);
 
-        // Integrity checks (simple)
+        // Проверки целостности
         bool catalogIntegrity = catalog.GetBookCount() == booksCount;
         bool queueIntegrity = processed == tasksCount;
-        bool cacheIntegrity = cache.GetCacheSize() >= 0; // basic
+        bool cacheIntegrity = cache.GetCacheSize() >= 0;
 
-        // Output summary
+        // Вывод результатов
         Console.WriteLine("=== Результаты тестирования потокобезопасных коллекций ===\n");
 
         Console.WriteLine("ConcurrentDictionary:");
         Console.WriteLine($"  Количество операций: {booksCount}");
         Console.WriteLine($"  Время выполнения: {timeConcurrent} мс");
         Console.WriteLine($"  Успешные операции: {succOps}");
-        Console.WriteLine($"  Производительность: {Math.Round((double)cdThroughput, 2)} операций/сек");
+        Console.WriteLine($"  Производительность: {Math.Round(cdThroughput, 2)} операций/сек");
         Console.WriteLine($"  Целостность данных: {(catalogIntegrity ? "Да" : "Нет")}\n");
 
         Console.WriteLine("BlockingCollection:");
@@ -89,7 +89,7 @@ class Program
         Console.WriteLine($"  ConcurrentDictionary vs Synchronized Dictionary: {speedup}x");
         Console.WriteLine($"  Накладные расходы синхронизации: {syncOverheadPct}%\n");
 
-        // CompareAllCollections (prints formatted comparison)
+        // Дополнительное сравнение всех коллекций
         benchmark.CompareAllCollections(booksCount, tasksCount, cacheCount, randomSeed);
     }
 }
