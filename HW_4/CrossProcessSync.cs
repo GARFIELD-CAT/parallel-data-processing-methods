@@ -24,7 +24,7 @@ public static class CrossProcessSync
             }
             catch (ApplicationException)
             {
-                // Если текущий поток не владеет мьютексом — логируем/перекидываем
+                // Если текущий поток не владеет мьютексом — ошибку выше пробрасываем
                 throw;
             }
             finally

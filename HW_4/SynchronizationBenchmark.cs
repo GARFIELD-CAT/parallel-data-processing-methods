@@ -114,7 +114,6 @@ public static class SynchronizationBenchmark
             {
                 bool ok = CrossProcessSync.TryExecuteWithGlobalLock(mutexName, () =>
                 {
-                    // короткая критическая секция
                     Thread.Sleep(10);
                 }, timeoutMs);
 

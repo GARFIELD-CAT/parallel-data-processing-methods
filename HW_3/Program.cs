@@ -7,9 +7,8 @@ class Program
     {
         // ------------------ Тестирование обработки транзакций ------------------
         const decimal initialBalance = 10000;
-        int randomSeed = 42;
-        const int transactionCount = 1000;
-        Random rnd = new Random(42);
+        int randomSeed = 43;
+        const int transactionCount = 10000;
 
         // Генерация 1000 транзакций: 500 депозитов, 500 снятий, суммы от 10 до 1000
         List<decimal> transactions = GenerateData(transactionCount, randomSeed);

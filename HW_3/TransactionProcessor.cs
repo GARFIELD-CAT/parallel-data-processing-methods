@@ -16,7 +16,7 @@ public static class TransactionProcessor
             Thread t = new Thread(() =>
             {
                 // Для демонстрации гонки данных добавил.
-                // Thread.Sleep(1);
+                Thread.Sleep(1);
 
                 if (amount >= 0)
                     account.Deposit(amount);
@@ -112,7 +112,6 @@ public static class TransactionProcessor
         Random rnd = new Random(42);
 
         // Часть 1: НЕБЕЗОПАСНЫЕ переводы (могут привести к deadlock).
-        // Ограничимся двумя потоками, выполняющими переводы в противоположных направлениях.
         BankAccount a = new BankAccount(accounts[0].Balance);
         BankAccount b = new BankAccount(accounts[1].Balance);
 

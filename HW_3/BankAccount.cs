@@ -23,8 +23,6 @@ public class BankAccount
     }
 
     // ---------- Базовая реализация (без синхронизации) ----------
-    // Эти методы не содержат никакой защиты, при одновременном вызове из нескольких потоков
-    // возникают гонки данных (data race), что приводит к некорректному итоговому балансу.
     public void Deposit(decimal amount)
     {
         _balance += amount;
@@ -43,8 +41,6 @@ public class BankAccount
     }
 
     // ---------- Реализация с использованием lock ----------
-    // Ключевое слово lock является синтаксическим сахаром для Monitor.Enter/Exit.
-    // Оно гарантирует, что только один поток одновременно выполняет блок кода.
     public void DepositWithLock(decimal amount)
     {
         lock (_lock)
@@ -61,9 +57,7 @@ public class BankAccount
         }
     }
 
-    /// Перевод с использованием lock. Важно: блокировка захватывается на текущем счете (this),
-    /// но не на целевом счете. Это может привести к взаимной блокировке (deadlock),
-    /// если другой поток попытается перевести средства в обратном направлении.
+    /// Перевод с использованием lock.
     public void TransferWithLock(BankAccount target, decimal amount)
     {
         lock (_lock)
@@ -74,9 +68,6 @@ public class BankAccount
     }
 
     // ---------- Реализация с использованием Monitor ----------
-    // Monitor предоставляет более тонкий контроль: можно задать таймаут, явно вызвать Exit.
-    // ВАЖНО: Monitor.Exit обязательно должен вызываться в блоке finally, чтобы избежать вечной блокировки при исключениях.
-
     public void DepositWithMonitor(decimal amount)
     {
         Monitor.Enter(_lock); // захват блокировки
@@ -154,7 +145,6 @@ public class BankAccount
     }
 
     // ---------- Реализация с таймаутами (Monitor.TryEnter) ----------
-    // TryEnter пытается захватить блокировку за указанное время, возвращает false, если не удалось.
     public bool DepositWithTimeout(decimal amount, int timeoutMs)
     {
         if (Monitor.TryEnter(_lock, timeoutMs))

@@ -18,15 +18,15 @@ class Program
 
         // Тестирование ReaderWriterLockSlim
         Console.WriteLine("\n=== Тест ReaderWriterLockSlim ===");
-        int readerCount = 5000;
-        int writerCount = 1000;
+        int readerCount = 100;
+        int writerCount = 10;
         var rwResult = SynchronizationBenchmark.BenchmarkReaderWriterLock(catalog, readerCount, writerCount);
         Console.WriteLine($"Чтение (суммарно): {rwResult.readMs} мс, Запись: {rwResult.writeMs} мс, Общее: {rwResult.totalMs} мс");
 
-        // Проверка целостности — ожидаем минимум initialBooks (писатели могут добавлять)
+        // Проверка целостности — ожидаем минимум initialBooks
         var all = catalog.GetAllBooks();
         Console.WriteLine($"Всего книг после конкурентного доступа: {all.Count}");
-        Console.WriteLine($"Целостность данных: {(all.Count >= initialBooks ? "Да" : "Нет")}");
+        Console.WriteLine($"Целостность данных: {(all.Count == initialBooks + writerCount ? "Да" : "Нет")}");
 
         // Тест SemaphoreSlim
         Console.WriteLine("\n=== Тест SemaphoreSlim ===");
