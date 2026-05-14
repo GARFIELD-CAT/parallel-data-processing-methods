@@ -1,15 +1,14 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+
+namespace LibrarySystem;
+
 
 public class TaskItem
 {
     public Guid Id { get; } = Guid.NewGuid();
     public string Description { get; set; }
     public Action Action { get; set; }
-    public DateTime CreatedAt { get; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; } = DateTime.Now;
 
     public TaskItem(string description, Action action)
     {
@@ -18,84 +17,56 @@ public class TaskItem
     }
 }
 
-public class TaskQueueManager : IDisposable
+public class TaskQueueManager
 {
-    public BlockingCollection<TaskItem> TaskQueue { get; }
+    private readonly BlockingCollection<TaskItem> _taskQueue;
 
-    private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-    private readonly List<Task> _workers = new List<Task>();
-
-    public TaskQueueManager(int boundedCapacity = 1000)
+    public TaskQueueManager(int boundedCapacity)
     {
-        TaskQueue = new BlockingCollection<TaskItem>(boundedCapacity);
+        _taskQueue = new BlockingCollection<TaskItem>(boundedCapacity);
     }
 
-    public bool AddTask(string description, Action action)
+    public void AddTask(string description, Action taskAction)
     {
-        var item = new TaskItem(description, action);
-
-        try
-        {
-            return TaskQueue.TryAdd(item);
-        }
-        catch
-        {
-            return false;
-        }
+        _taskQueue.TryAdd(new TaskItem(description, taskAction));
     }
 
-    public Task ProcessTasks(int workerCount)
+    public void ProcessTasks(int workerCount)
     {
-        _workers.Clear();
+        using var cts = new CancellationTokenSource();
+
+        var workers = new Task[workerCount];
 
         for (int i = 0; i < workerCount; i++)
         {
-            var worker = Task.Run(() =>
+            int workerId = i;
+            workers[i] = Task.Run(() =>
             {
-                foreach (var taskItem in TaskQueue.GetConsumingEnumerable(_cts.Token))
+                foreach (var taskItem in _taskQueue.GetConsumingEnumerable(cts.Token))
                 {
                     try
                     {
-                        taskItem.Action?.Invoke();
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Корректный выход при отмене токена – ничего не делаем
+                        Console.WriteLine($"[Worker {workerId}] Выполняется: {taskItem.Description}");
+                        taskItem.Action();
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Ошибка обработки задачи: {ex.Message}");
+                        Console.WriteLine($"[Worker {workerId}] Ошибка в задаче {taskItem.Id}: {ex.Message}");
                     }
                 }
-            }, _cts.Token);
-
-            _workers.Add(worker);
+            }, cts.Token);
         }
 
-        return Task.WhenAll(_workers);
+        Task.WaitAll(workers);
     }
 
     public void CompleteAdding()
     {
-        TaskQueue.CompleteAdding();
+        _taskQueue.CompleteAdding();
     }
-
 
     public int GetPendingTaskCount()
     {
-        return TaskQueue.Count;
-    }
-
-
-    public void StopProcessing()
-    {
-        _cts.Cancel();
-    }
-
-    public void Dispose()
-    {
-        StopProcessing();
-        TaskQueue.Dispose();
-        _cts.Dispose();
+        return _taskQueue.Count;
     }
 }

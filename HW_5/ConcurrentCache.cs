@@ -1,44 +1,43 @@
-using System;
 using System.Collections.Concurrent;
-using System.Linq;
+
+namespace LibrarySystem;
+
 
 public class CacheItem
 {
     public object Value { get; set; }
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public DateTime Timestamp { get; } = DateTime.Now;
     public TimeSpan ExpirationTime { get; set; } = TimeSpan.FromMinutes(5);
+
+    public CacheItem(object value)
+    {
+        Value = value;
+    }
 
     public bool IsExpired()
     {
-        bool result = DateTime.UtcNow - Timestamp > ExpirationTime;
-        return result;
-    }
-
-    public CacheItem(object value, DateTime timestamp)
-    {
-        Value = value;
-        Timestamp = timestamp;
+        return DateTime.Now - Timestamp > ExpirationTime;
     }
 }
 
 public class ConcurrentCache
 {
-    public ConcurrentDictionary<string, ConcurrentBag<CacheItem>> Cache { get; } =
-        new ConcurrentDictionary<string, ConcurrentBag<CacheItem>>(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ConcurrentBag<CacheItem>> _cache = new();
 
     public void AddToCache(string key, object value)
     {
-        var bag = Cache.GetOrAdd(key, _ => new ConcurrentBag<CacheItem>());
+        var bag = _cache.GetOrAdd(key, _ => new ConcurrentBag<CacheItem>());
         bag.Add(
-            new CacheItem(value, DateTime.UtcNow)
+            new CacheItem(value)
         );
     }
 
-    public bool TryGetFromCache(string key, out object value)
+    public bool TryGetFromCache(string key, out object? value)
     {
         value = null;
 
-        if (!Cache.TryGetValue(key, out var bag)) return false;
+        if (!_cache.TryGetValue(key, out var bag))
+            return false;
 
         foreach (var item in bag)
         {
@@ -51,18 +50,23 @@ public class ConcurrentCache
         return false;
     }
 
-    public bool RemoveFromCache(string key)
+    public void RemoveFromCache(string key)
     {
-        return Cache.TryRemove(key, out _);
+        _cache.TryRemove(key, out _);
     }
 
     public void ClearCache()
     {
-        Cache.Clear();
+        _cache.Clear();
     }
 
     public int GetCacheSize()
     {
-        return Cache.Values.Sum(b => b.Count);
+        int count = 0;
+
+        foreach (var bag in _cache.Values)
+            count += bag.Count;
+
+        return count;
     }
 }

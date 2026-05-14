@@ -1,7 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
+
+namespace LibrarySystem;
+
 
 public class Book
 {
@@ -13,64 +13,66 @@ public class Book
         Title = title;
         Author = author;
     }
-}
 
+    public override string ToString() => $"\"{Title}\" by {Author}";
+}
 
 public class ConcurrentLibraryCatalog
 {
-    public ConcurrentDictionary<string, Book> Books = new ConcurrentDictionary<string, Book>(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Book> _books = new();
 
     public bool AddBook(string title, string author)
     {
-        Book book = new Book(title, author);
-
-        return Books.TryAdd(title, book);
+        return _books.TryAdd(title, new Book(title, author));
     }
 
     public bool RemoveBook(string title)
     {
-        return Books.TryRemove(title, out _);
+        return _books.TryRemove(title, out _);
     }
 
     public bool UpdateBook(string title, string newTitle, string newAuthor)
     {
-        if (!Books.TryGetValue(title, out var existing)) return false;
+        if (!_books.TryGetValue(title, out Book oldBook))
+            return false;
 
-        var updated = new Book(newTitle, newAuthor);
+        var newBook = new Book(newTitle, newAuthor);
 
-        return Books.TryUpdate(title, updated, existing);
+        return _books.TryUpdate(title, newBook, oldBook);
     }
 
-    public IEnumerable<Book> SearchBooks(string keyword)
+    public Book[] SearchBooks(string keyword)
     {
-        if (string.IsNullOrWhiteSpace(keyword)) return Enumerable.Empty<Book>();
+        var results = new List<Book>();
 
-        keyword = keyword.Trim();
-
-        return Books.Values.Where(
-            book => book.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase)
-            || book.Author.Contains(keyword, StringComparison.OrdinalIgnoreCase)
-        );
+        foreach (var book in _books.Values)
+        {
+            if (book.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                book.Author.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(book);
+            }
+        }
+        return results.ToArray();
     }
 
-    public IEnumerable<Book> GetAllBooks()
+    public Book[] GetAllBooks()
     {
-        return Books.Values.ToArray();
+        return _books.Values.ToArray();
     }
 
     public int GetBookCount()
     {
-        return Books.Count;
+        return _books.Count;
     }
-
 
     public void ClearCatalog()
     {
-        Books.Clear();
+        _books.Clear();
     }
 
-    public bool TryGetBook(string title, out Book book)
+    public bool TryGetBook(string title, out Book? book)
     {
-        return Books.TryGetValue(title, out book);
+        return _books.TryGetValue(title, out book);
     }
 }
