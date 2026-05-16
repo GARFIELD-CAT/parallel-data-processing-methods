@@ -7,68 +7,30 @@ class Program
 {
     static void Main(string[] args)
     {
-        int randomSeed = 42;
+        var benchmark = new CollectionBenchmark();
+
+        // Тестирование ConcurrentLibraryCatalog
         int booksCount = 1000;
+        int ops = 1000;
+        int threads = 50;
+
+        var cdResult = benchmark.BenchmarkConcurrentDictionary(booksCount, ops, threads);
+        double cdPerSec = cdResult.SuccessOps / (cdResult.ElapsedMs / 1000.0);
+
+        // Тестирование TaskQueueManager
         int tasksCount = 1000;
         int boundedCapacity = 1000;
+        int workersCount = 10;
+
+        var bcResult = benchmark.BenchmarkBlockingCollection(tasksCount, workersCount);
+        double bcPerSec = bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0);
+
+        // Тестирование ConcurrentCache
         int cacheSize = 500;
         int cacheOperations = 500;
         int cacheThreads = 20;
 
-        Random rnd = new Random(randomSeed);
-
-        var catalog = new ConcurrentLibraryCatalog();
-        for (int i = 0; i < booksCount; i++)
-        {
-            catalog.AddBook($"Book_{i}", $"Author_{i}");
-        }
-
-        var queueManager = new TaskQueueManager(boundedCapacity);
-
-        var cache = new ConcurrentCache();
-        for (int i = 0; i < cacheSize; i++)
-        {
-            cache.AddToCache($"key_{i}", $"value_{i}");
-        }
-
-        var benchmark = new CollectionBenchmark();
-
-        // Тестирование ConcurrentLibraryCatalog
-        var cdResult = benchmark.BenchmarkConcurrentDictionary(1000, 50);
-        double cdPerSec = cdResult.SuccessOps / (cdResult.ElapsedMs / 1000.0);
-
-        // Тестирование TaskQueueManager
-        var bcResult = benchmark.BenchmarkBlockingCollection(tasksCount, 10);
-        double bcPerSec = bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0);
-
-        // Тестирование ConcurrentCache
-        int cacheSuccess = 0;
-        var swCache = Stopwatch.StartNew();
-        var cacheTasks = new Task[cacheThreads];
-        for (int t = 0; t < cacheThreads; t++)
-        {
-            cacheTasks[t] = Task.Run(() =>
-            {
-                for (int i = 0; i < cacheOperations / cacheThreads; i++)
-                {
-                    if (rnd.Next(10) < 7)
-                    {
-                        if (cache.TryGetFromCache($"key_{rnd.Next(cacheSize)}", out _))
-                            Interlocked.Increment(ref cacheSuccess);
-                    }
-                    else
-                    {
-                        cache.AddToCache($"key_{rnd.Next(cacheSize)}", $"new_value_{i}");
-                        Interlocked.Increment(ref cacheSuccess);
-                    }
-                }
-            });
-        }
-        Task.WaitAll(cacheTasks);
-        swCache.Stop();
-
-        Console.WriteLine("\n=== Сравнение и сводная статистика ===");
-        benchmark.CompareAllCollections();
+        var swCache = benchmark.BenchmarkConcurrentCache(cacheSize, cacheOperations, cacheThreads);
 
         Console.WriteLine("\n=== Результаты тестирования потокобезопасных коллекций ===");
         Console.WriteLine("ConcurrentDictionary:");
@@ -86,8 +48,10 @@ class Program
         Console.WriteLine($"  Производительность: {bcPerSec:F2} задач/сек");
 
         Console.WriteLine("\nConcurrentCache:");
-        Console.WriteLine($"  Количество операций: {cacheOperations}");
-        Console.WriteLine($"  Время выполнения: {swCache.ElapsedMilliseconds} мс");
-        Console.WriteLine($"  Успешные операции: {cacheSuccess}");
+        Console.WriteLine($"  Количество операций: {swCache.SuccessOps + swCache.FailedOps}");
+        Console.WriteLine($"  Время выполнения: {swCache.ElapsedMs} мс");
+        Console.WriteLine($"  Успешные операции: {swCache.SuccessOps}");
+
+        benchmark.CompareAllCollections();
     }
 }

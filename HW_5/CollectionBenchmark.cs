@@ -2,57 +2,55 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 
 public class CollectionBenchmark
 {
-    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkConcurrentDictionary(int operationCount, int threadCount)
+    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkConcurrentDictionary(int booksCount, int operationCount, int threadCount)
     {
-        var catalog = new ConcurrentDictionary<string, int>();
+        var catalog = new ConcurrentLibraryCatalog();
         int success = 0;
         int failed = 0;
 
-        Parallel.For(0, operationCount, i =>
-            catalog.TryAdd($"Key_{i}", i));
+        Parallel.For(0, booksCount, i =>
+            catalog.AddBook($"Title_{i}", $"Author_{i}")
+        );
 
+        var rnd = new Random(42);
         var sw = Stopwatch.StartNew();
-        var tasks = new Task[threadCount];
 
-        var options = new ParallelOptions { MaxDegreeOfParallelism = threadCount };
-        int opsPerThread = operationCount / threadCount;
-
-        Parallel.For(0, threadCount, options, t =>
+        Parallel.ForEach(
+            Enumerable.Range(0, operationCount),
+            new ParallelOptions { MaxDegreeOfParallelism = threadCount }, i =>
         {
-            var rnd = new Random(42 * t);
+            int keyIdx = rnd.Next(operationCount);
+            string title = $"Title_{keyIdx}";
+            int op = rnd.Next(3);
 
-            for (int i = 0; i < opsPerThread; i++)
+            if (op == 0) // AddBook
             {
-                int keyIdx = rnd.Next(operationCount);
-                string key = $"Key_{keyIdx}";
-                int op = rnd.Next(3);
+                if (catalog.AddBook($"New_Title_{keyIdx}", $"Author_{keyIdx}"))
+                    Interlocked.Increment(ref success);
+                else
+                    Interlocked.Increment(ref failed);
+            }
+            else if (op == 1) // SearchBooks
+            {
+                List<Book> result = catalog.SearchBooks(title);
 
-                if (op == 0) // Add
-                {
-                    if (catalog.TryAdd($"NewKey_{keyIdx}_{i}", keyIdx))
-                        Interlocked.Increment(ref success);
-                    else
-                        Interlocked.Increment(ref failed);
-                }
-                else if (op == 1) // TryGet
-                {
-                    if (catalog.TryGetValue(key, out _))
-                        Interlocked.Increment(ref success);
-                    else
-                        Interlocked.Increment(ref failed);
-                }
-                else // Remove
-                {
-                    if (catalog.TryRemove(key, out _))
-                        Interlocked.Increment(ref success);
-                    else
-                        Interlocked.Increment(ref failed);
-                }
+                if (result.Count > 0)
+                    Interlocked.Increment(ref success);
+                else
+                    Interlocked.Increment(ref failed);
+            }
+            else // RemoveBook
+            {
+                if (catalog.RemoveBook(title))
+                    Interlocked.Increment(ref success);
+                else
+                    Interlocked.Increment(ref failed);
             }
         });
 
@@ -66,6 +64,8 @@ public class CollectionBenchmark
         int processed = 0;
         var sw = Stopwatch.StartNew();
 
+        var processingTask = queueManager.ProcessTasks(workerCount);
+
         for (int i = 0; i < taskCount; i++)
         {
             int taskId = i;
@@ -76,90 +76,149 @@ public class CollectionBenchmark
             });
         }
         queueManager.CompleteAdding();
-        queueManager.ProcessTasks(workerCount);
+
+        processingTask.Wait();
 
         sw.Stop();
+
+        queueManager.Dispose();
+
         return (sw.ElapsedMilliseconds, processed);
     }
 
-    public (long ElapsedMs, int SuccessOps) BenchmarkSynchronizedDictionary(int operationCount, int threadCount)
+    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkSynchronizedDictionary(int booksCount, int operationCount, int threadCount)
     {
-        var dict = new Dictionary<string, int>();
+        var dict = new Dictionary<string, Book>();
         var lockObj = new object();
         int success = 0;
         int failed = 0;
 
         for (int i = 0; i < operationCount; i++)
-            dict[$"Key_{i}"] = i;
+            dict[$"Title_{i}"] = new Book($"Title_{i}", $"Author_{i}");
 
+        var rnd = new Random(42);
         var sw = Stopwatch.StartNew();
-        var options = new ParallelOptions { MaxDegreeOfParallelism = threadCount };
-        int opsPerThread = operationCount / threadCount;
 
-        Parallel.For(0, threadCount, options, t =>
+        Parallel.ForEach(
+            Enumerable.Range(0, operationCount),
+            new ParallelOptions { MaxDegreeOfParallelism = threadCount }, i =>
         {
-            var rnd = new Random(42 * t);
+            int keyIdx = rnd.Next(operationCount);
+            string title = $"Title_{keyIdx}";
+            int op = rnd.Next(3);
 
-            for (int i = 0; i < opsPerThread; i++)
+            lock (lockObj)
             {
-                int keyIdx = rnd.Next(operationCount);
-                string key = $"Key_{keyIdx}";
-                int op = rnd.Next(3);
-
-                lock (lockObj)
+                if (op == 0) // Add
                 {
-                    if (op == 0) // Add
+                    string newKey = $"New_Title_{keyIdx}";
+                    if (!dict.ContainsKey(newKey))
                     {
-                        string newKey = $"NewKey_{keyIdx}_{i}";
-                        if (!dict.ContainsKey(newKey))
+                        dict.Add(newKey, new Book(newKey, $"Author_{i}"));
+                        Interlocked.Increment(ref success);
+                    }
+                    else
+                        Interlocked.Increment(ref failed);
+                }
+                else if (op == 1) // Search
+                {
+                    var results = new List<Book>();
+
+                    foreach (var book in dict.Values)
+                    {
+                        if (book.Title.Contains(title, StringComparison.OrdinalIgnoreCase))
                         {
-                            dict[newKey] = keyIdx;
-                            Interlocked.Increment(ref success);
+                            results.Add(book);
                         }
-                        else
-                            Interlocked.Increment(ref failed);
                     }
-                    else if (op == 1) // Search
+
+                    if (results.Count() > 0)
                     {
-                        if (dict.ContainsKey(key))
-                            Interlocked.Increment(ref success);
-                        else
-                            Interlocked.Increment(ref failed);
+                        Interlocked.Increment(ref success);
                     }
-                    else // Remove
+                    else
                     {
-                        if (dict.Remove(key))
-                            Interlocked.Increment(ref success);
-                        else
-                            Interlocked.Increment(ref failed);
+                        Interlocked.Increment(ref failed);
                     }
                 }
+                else // Remove
+                {
+                    if (dict.Remove(title))
+                        Interlocked.Increment(ref success);
+                    else
+                        Interlocked.Increment(ref failed);
+                }
             }
+
         });
 
         sw.Stop();
-        return (sw.ElapsedMilliseconds, success);
+        return (sw.ElapsedMilliseconds, success, failed);
+    }
+
+    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkConcurrentCache(int cacheSize, int operationCount, int threadCount)
+    {
+        int success = 0;
+        int failed = 0;
+        var rnd = new Random(42);
+
+        var cache = new ConcurrentCache();
+        for (int i = 0; i < cacheSize; i++)
+        {
+            cache.AddToCache($"key_{i}", $"value_{i}");
+        }
+
+        var sw = Stopwatch.StartNew();
+        var cacheTasks = new Task[threadCount];
+
+        for (int t = 0; t < threadCount; t++)
+        {
+            cacheTasks[t] = Task.Run(() =>
+            {
+                for (int i = 0; i < operationCount / threadCount; i++)
+                {
+                    if (rnd.Next(10) < 7)
+                    {
+                        if (cache.TryGetFromCache($"key_{rnd.Next(cacheSize)}", out _))
+                            Interlocked.Increment(ref success);
+                        else
+                            Interlocked.Increment(ref failed);
+                    }
+                    else
+                    {
+                        cache.AddToCache($"key_{rnd.Next(cacheSize)}", $"new_value_{i}");
+                        Interlocked.Increment(ref success);
+                    }
+                }
+            });
+        }
+        Task.WaitAll(cacheTasks);
+        sw.Stop();
+
+        return (sw.ElapsedMilliseconds, success, failed);
     }
 
     public void CompareAllCollections()
     {
-        int ops = 100000;
+        int ops = 10000;
+        int bookCount = 1000;
         int threads = 50;
-        int tasks = 10000;
+        int tasks = 1000;
         int workers = 10;
 
-        var cdResult = BenchmarkConcurrentDictionary(ops, threads);
+        var cdResult = BenchmarkConcurrentDictionary(bookCount, ops, threads);
         var bcResult = BenchmarkBlockingCollection(tasks, workers);
-        var syncResult = BenchmarkSynchronizedDictionary(ops, threads);
+        var syncResult = BenchmarkSynchronizedDictionary(bookCount, ops, threads);
 
-        double cdPerSec = cdResult.ElapsedMs > 0 ? cdResult.SuccessOps / (cdResult.ElapsedMs / 1000.0) : 0;
+        double cdPerSec = cdResult.ElapsedMs > 0 ? cdResult.SuccessOps + cdResult.FailedOps / (cdResult.ElapsedMs / 1000.0) : 0;
         double bcPerSec = bcResult.ElapsedMs > 0 ? bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0) : 0;
-        double syncPerSec = syncResult.ElapsedMs > 0 ? syncResult.SuccessOps / (syncResult.ElapsedMs / 1000.0) : 0;
+        double syncPerSec = syncResult.ElapsedMs > 0 ? syncResult.SuccessOps + syncResult.FailedOps / (syncResult.ElapsedMs / 1000.0) : 0;
         double speedup = syncPerSec > 0 ? cdPerSec / syncPerSec : 0;
 
         Console.WriteLine("\n=== Сравнение потокобезопасных коллекций ===");
         Console.WriteLine("ConcurrentDictionary:");
         Console.WriteLine($"  Время выполнения: {cdResult.ElapsedMs} мс");
+        Console.WriteLine($"  Попытки операции: {cdResult.SuccessOps + cdResult.FailedOps}");
         Console.WriteLine($"  Успешные операции: {cdResult.SuccessOps}");
         Console.WriteLine($"  Производительность: {cdPerSec:F2} операций/сек");
 
@@ -170,6 +229,7 @@ public class CollectionBenchmark
 
         Console.WriteLine("\nSynchronized Dictionary (с lock):");
         Console.WriteLine($"  Время выполнения: {syncResult.ElapsedMs} мс");
+        Console.WriteLine($"  Попытки операции: {cdResult.SuccessOps + cdResult.FailedOps}");
         Console.WriteLine($"  Успешные операции: {syncResult.SuccessOps}");
         Console.WriteLine($"  Производительность: {syncPerSec:F2} операций/сек");
 

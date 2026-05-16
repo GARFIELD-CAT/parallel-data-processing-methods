@@ -25,9 +25,7 @@ public class ConcurrentCache
     public void AddToCache(string key, object value)
     {
         var bag = _cache.GetOrAdd(key, _ => new ConcurrentBag<CacheItem>());
-        bag.Add(
-            new CacheItem(value)
-        );
+        bag.Add(new CacheItem(value));
     }
 
     public bool TryGetFromCache(string key, out object? value)

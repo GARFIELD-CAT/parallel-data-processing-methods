@@ -15,9 +15,10 @@ public class TaskItem
     }
 }
 
-public class TaskQueueManager
+public class TaskQueueManager : IDisposable
 {
     private readonly BlockingCollection<TaskItem> _taskQueue;
+    private readonly CancellationTokenSource _cts = new();
 
     public TaskQueueManager(int boundedCapacity)
     {
@@ -26,13 +27,11 @@ public class TaskQueueManager
 
     public void AddTask(string description, Action taskAction)
     {
-        _taskQueue.TryAdd(new TaskItem(description, taskAction));
+        _taskQueue.Add(new TaskItem(description, taskAction), _cts.Token);
     }
 
-    public void ProcessTasks(int workerCount)
+    public Task ProcessTasks(int workerCount)
     {
-        using var cts = new CancellationTokenSource();
-
         var workers = new Task[workerCount];
 
         for (int i = 0; i < workerCount; i++)
@@ -40,21 +39,21 @@ public class TaskQueueManager
             int workerId = i;
             workers[i] = Task.Run(() =>
             {
-                foreach (var taskItem in _taskQueue.GetConsumingEnumerable(cts.Token))
+                foreach (var taskItem in _taskQueue.GetConsumingEnumerable(_cts.Token))
                 {
                     try
                     {
-                        taskItem.Action();
+                        taskItem.Action?.Invoke();
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"[Worker {workerId}] Ошибка в задаче {taskItem.Id}: {ex.Message}");
                     }
                 }
-            }, cts.Token);
+            }, _cts.Token);
         }
 
-        Task.WaitAll(workers);
+        return Task.WhenAll(workers);
     }
 
     public void CompleteAdding()
@@ -65,5 +64,12 @@ public class TaskQueueManager
     public int GetPendingTaskCount()
     {
         return _taskQueue.Count;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _taskQueue.Dispose();
     }
 }

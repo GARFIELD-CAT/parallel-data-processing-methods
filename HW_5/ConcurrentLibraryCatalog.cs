@@ -39,7 +39,7 @@ public class ConcurrentLibraryCatalog
         return _books.TryUpdate(title, newBook, oldBook);
     }
 
-    public Book[] SearchBooks(string keyword)
+    public List<Book> SearchBooks(string keyword)
     {
         var results = new List<Book>();
 
@@ -51,12 +51,12 @@ public class ConcurrentLibraryCatalog
                 results.Add(book);
             }
         }
-        return results.ToArray();
+        return results;
     }
 
-    public Book[] GetAllBooks()
+    public List<Book> GetAllBooks()
     {
-        return _books.Values.ToArray();
+        return _books.Values.ToList();
     }
 
     public int GetBookCount()
