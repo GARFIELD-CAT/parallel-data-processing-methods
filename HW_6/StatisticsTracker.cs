@@ -1,92 +1,78 @@
 using System.Threading;
 
-namespace AtomicOperationsDemo
+public class StatisticsTracker
 {
-    /// <summary>
-    /// Сборщик статистики запросов, использующий только атомарные операции.
-    /// Все счётчики обновляются без блокировок.
-    /// </summary>
-    public class StatisticsTracker
+    private long _totalRequests;
+    private long _successfulRequests;
+    private long _failedRequests;
+    private long _totalProcessingTime;
+
+    public long TotalRequests
     {
-        // Общее количество запросов
-        private long _totalRequests;
-        // Количество успешных запросов
-        private long _successfulRequests;
-        // Количество неудачных запросов
-        private long _failedRequests;
-        // Общее время обработки в миллисекундах
-        private long _totalProcessingTime;
+        get { return Interlocked.Read(ref _totalRequests); }
+    }
 
-        /// <summary>
-        /// Общее количество запросов (атомарное чтение).
-        /// </summary>
-        public long TotalRequests => Interlocked.Read(ref _totalRequests);
+    public long SuccessfulRequests
+    {
+        get { return Interlocked.Read(ref _successfulRequests); }
+    }
 
-        /// <summary>
-        /// Количество успешных запросов.
-        /// </summary>
-        public long SuccessfulRequests => Interlocked.Read(ref _successfulRequests);
+    public long FailedRequests
+    {
+        get { return Interlocked.Read(ref _failedRequests); }
+    }
 
-        /// <summary>
-        /// Количество неудачных запросов.
-        /// </summary>
-        public long FailedRequests => Interlocked.Read(ref _failedRequests);
+    public long TotalProcessingTime
+    {
+        get { return Interlocked.Read(ref _totalProcessingTime); }
+    }
 
-        /// <summary>
-        /// Общее время обработки всех запросов (мс).
-        /// </summary>
-        public long TotalProcessingTime => Interlocked.Read(ref _totalProcessingTime);
+    public void RecordRequest(bool success, long processingTime)
+    {
+        Interlocked.Increment(ref _totalRequests);
 
-        /// <summary>
-        /// Регистрирует один запрос с указанием успешности и времени обработки.
-        /// </summary>
-        /// <param name="success">Успешно ли обработан запрос.</param>
-        /// <param name="processingTime">Время обработки в миллисекундах.</param>
-        public void RecordRequest(bool success, long processingTime)
+        if (success)
+            Interlocked.Increment(ref _successfulRequests);
+        else
+            Interlocked.Increment(ref _failedRequests);
+
+        // Прибавляем время обработки
+        Interlocked.Add(ref _totalProcessingTime, processingTime);
+    }
+
+    public double GetSuccessRate()
+    {
+        long total = TotalRequests;
+
+        if (total == 0)
         {
-            // Атомарно увеличиваем счётчики запросов
-            Interlocked.Increment(ref _totalRequests);
-
-            if (success)
-                Interlocked.Increment(ref _successfulRequests);
-            else
-                Interlocked.Increment(ref _failedRequests);
-
-            // Прибавляем время обработки
-            Interlocked.Add(ref _totalProcessingTime, processingTime);
+            return 0.0;
         }
 
-        /// <summary>
-        /// Возвращает долю успешных запросов в процентах (0.0 – 100.0).
-        /// </summary>
-        public double GetSuccessRate()
+        long success = SuccessfulRequests;
+
+        return (double)success / total * 100.0;
+    }
+
+    public double GetAverageProcessingTime()
+    {
+        long total = TotalRequests;
+
+        if (total == 0)
         {
-            long total = Interlocked.Read(ref _totalRequests);
-            if (total == 0) return 0.0;
-            long success = Interlocked.Read(ref _successfulRequests);
-            return (double)success / total * 100.0;
+            return 0.0;
         }
 
-        /// <summary>
-        /// Возвращает среднее время обработки запроса в миллисекундах.
-        /// </summary>
-        public double GetAverageProcessingTime()
-        {
-            long total = Interlocked.Read(ref _totalRequests);
-            if (total == 0) return 0.0;
-            long totalTime = Interlocked.Read(ref _totalProcessingTime);
-            return (double)totalTime / total;
-        }
+        long totalTime = TotalProcessingTime;
 
-        /// <summary>
-        /// Сбрасывает все счётчики в ноль.
-        /// </summary>
-        public void Reset()
-        {
-            Interlocked.Exchange(ref _totalRequests, 0);
-            Interlocked.Exchange(ref _successfulRequests, 0);
-            Interlocked.Exchange(ref _failedRequests, 0);
-            Interlocked.Exchange(ref _totalProcessingTime, 0);
-        }
+        return (double)totalTime / total;
+    }
+
+    public void Reset()
+    {
+        Interlocked.Exchange(ref _totalRequests, 0);
+        Interlocked.Exchange(ref _successfulRequests, 0);
+        Interlocked.Exchange(ref _failedRequests, 0);
+        Interlocked.Exchange(ref _totalProcessingTime, 0);
     }
 }

@@ -1,127 +1,89 @@
 using System.Threading;
 
-namespace AtomicOperationsDemo
+
+public class LockFreeStack<T>
 {
-    /// <summary>
-    /// Потокобезопасный стек без использования блокировок (lock-free).
-    /// Реализован на основе односвязного списка и CAS-операции CompareExchange.
-    /// </summary>
-    /// <typeparam name="T">Тип элементов стека.</typeparam>
-    public class LockFreeStack<T>
+    private class Node
     {
-        /// <summary>
-        /// Узел стека — хранит значение и ссылку на следующий узел.
-        /// </summary>
-        private class Node
-        {
-            public T Value;            // Значение элемента
-            public Node Next;          // Ссылка на следующий узел (ниже в стеке)
+        public T Value;
+        public Node? Next;
 
-            public Node(T value, Node next = null)
-            {
-                Value = value;
-                Next = next;
-            }
+        public Node(T value, Node? next = null)
+        {
+            Value = value;
+            Next = next;
         }
+    }
 
-        // Голова стека (верхний узел). Все изменения выполняются через CAS.
-        private Node _head;
+    private Node? _head = null;
 
-        /// <summary>
-        /// Добавляет элемент на вершину стека (атомарно, без блокировок).
-        /// </summary>
-        /// <param name="item">Добавляемый элемент.</param>
-        public void Push(T item)
+    public void Push(T item)
+    {
+        Node newNode = new Node(item);
+        Node? currentHead;
+        do
         {
-            Node newNode = new Node(item);
-            Node currentHead;
-            do
-            {
-                // Запоминаем текущую голову стека
-                currentHead = _head;
-                // Новый узел должен указывать на неё
-                newNode.Next = currentHead;
-            }
-            // Пытаемся установить новый узел головой стека, если за время подготовки
-            // голова не изменилась. Если изменилась — повторяем.
-            while (Interlocked.CompareExchange(ref _head, newNode, currentHead) != currentHead);
+            currentHead = _head;
+            newNode.Next = currentHead;
         }
+        while (Interlocked.CompareExchange(ref _head, newNode, currentHead) != currentHead);
+    }
 
-        /// <summary>
-        /// Пытается извлечь элемент с вершины стека.
-        /// Возвращает true и элемент через out при успехе, иначе false.
-        /// </summary>
-        public bool TryPop(out T item)
+    public bool TryPop(out T? item)
+    {
+        Node? currentHead;
+        do
         {
-            Node currentHead;
-            do
-            {
-                currentHead = _head;
-                if (currentHead == null)
-                {
-                    item = default(T);
-                    return false; // Стек пуст
-                }
-            }
-            // Пытаемся сдвинуть голову на следующий узел.
-            // Если за время подготовки голова изменилась, повторяем.
-            while (Interlocked.CompareExchange(ref _head, currentHead.Next, currentHead) != currentHead);
+            currentHead = _head;
 
-            item = currentHead.Value;
-            return true;
-        }
-
-        /// <summary>
-        /// Пытается прочитать верхний элемент без его извлечения.
-        /// Использует атомарное чтение через CompareExchange, чтобы избежать
-        /// гонок при чтении ссылки.
-        /// </summary>
-        public bool TryPeek(out T item)
-        {
-            // Атомарно читаем текущую голову, передавая одинаковые значения для сравнения и замены.
-            Node currentHead = Interlocked.CompareExchange(ref _head, null, null);
+            // Стек пуст
             if (currentHead == null)
             {
-                item = default(T);
+                item = default;
                 return false;
             }
-
-            item = currentHead.Value;
-            return true;
         }
+        while (Interlocked.CompareExchange(ref _head, currentHead.Next, currentHead) != currentHead);
 
-        /// <summary>
-        /// Проверяет, пуст ли стек (моментальный неблокирующий снимок).
-        /// </summary>
-        public bool IsEmpty()
+        item = currentHead.Value;
+        return true;
+    }
+
+    public bool TryPeek(out T? item)
+    {
+        Node? currentHead = Interlocked.CompareExchange(ref _head, null, null);
+
+        if (currentHead == null)
         {
-            // Атомарно читаем голову
-            return Interlocked.CompareExchange(ref _head, null, null) == null;
+            item = default;
+            return false;
         }
 
-        /// <summary>
-        /// Очищает стек (атомарно устанавливает голову в null).
-        /// </summary>
-        public void Clear()
-        {
-            Interlocked.Exchange(ref _head, null);
-        }
+        item = currentHead.Value;
+        return true;
+    }
 
-        /// <summary>
-        /// Возвращает количество элементов в стеке (проход по цепочке).
-        /// Этот метод не является потокобезопасным при конкурентных изменениях,
-        /// его следует вызывать только после завершения всех операций.
-        /// </summary>
-        public int UnsafeCount()
+    public bool IsEmpty()
+    {
+        return Interlocked.CompareExchange(ref _head, null, null) == null;
+    }
+
+    public void Clear()
+    {
+        Interlocked.Exchange(ref _head, null);
+    }
+
+    // Читаем напрямую, т.к. вызов после тестов
+    public int UnsafeCount()
+    {
+        int count = 0;
+        Node? current = _head;
+
+        while (current != null)
         {
-            int count = 0;
-            Node current = _head; // Читаем напрямую, т.к. вызов после тестов
-            while (current != null)
-            {
-                count++;
-                current = current.Next;
-            }
-            return count;
+            count++;
+            current = current.Next;
         }
+        return count;
     }
 }
