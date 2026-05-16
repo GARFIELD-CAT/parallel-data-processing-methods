@@ -22,7 +22,7 @@ class Program
         int boundedCapacity = 1000;
         int workersCount = 10;
 
-        var bcResult = benchmark.BenchmarkBlockingCollection(tasksCount, workersCount);
+        var bcResult = benchmark.BenchmarkBlockingCollection(boundedCapacity, tasksCount, workersCount);
         double bcPerSec = bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0);
 
         // Тестирование ConcurrentCache

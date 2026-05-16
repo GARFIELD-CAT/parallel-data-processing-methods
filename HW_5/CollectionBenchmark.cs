@@ -58,9 +58,9 @@ public class CollectionBenchmark
         return (sw.ElapsedMilliseconds, success, failed);
     }
 
-    public (long ElapsedMs, int ProcessedTasks) BenchmarkBlockingCollection(int taskCount, int workerCount)
+    public (long ElapsedMs, int ProcessedTasks) BenchmarkBlockingCollection(int boundedCapacity, int taskCount, int workerCount)
     {
-        var queueManager = new TaskQueueManager(taskCount);
+        var queueManager = new TaskQueueManager(boundedCapacity);
         int processed = 0;
         var sw = Stopwatch.StartNew();
 
@@ -203,11 +203,13 @@ public class CollectionBenchmark
         int ops = 10000;
         int bookCount = 1000;
         int threads = 50;
+
         int tasks = 1000;
-        int workers = 10;
+        int boundedCapacity = 1000;
+        int workers = 50;
 
         var cdResult = BenchmarkConcurrentDictionary(bookCount, ops, threads);
-        var bcResult = BenchmarkBlockingCollection(tasks, workers);
+        var bcResult = BenchmarkBlockingCollection(boundedCapacity, tasks, workers);
         var syncResult = BenchmarkSynchronizedDictionary(bookCount, ops, threads);
 
         double cdPerSec = cdResult.ElapsedMs > 0 ? cdResult.SuccessOps + cdResult.FailedOps / (cdResult.ElapsedMs / 1000.0) : 0;
