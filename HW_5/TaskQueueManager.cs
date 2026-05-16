@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 
-namespace LibrarySystem;
-
 
 public class TaskItem
 {
@@ -46,7 +44,6 @@ public class TaskQueueManager
                 {
                     try
                     {
-                        Console.WriteLine($"[Worker {workerId}] Выполняется: {taskItem.Description}");
                         taskItem.Action();
                     }
                     catch (Exception ex)

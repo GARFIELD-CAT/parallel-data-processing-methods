@@ -1,157 +1,161 @@
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
-
-namespace LibrarySystem;
-
+using System.Threading;
+using System.Threading.Tasks;
 
 public class CollectionBenchmark
 {
-
-    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkConcurrentDictionary(int operationCount)
+    public (long ElapsedMs, int SuccessOps, int FailedOps) BenchmarkConcurrentDictionary(int operationCount, int threadCount)
     {
-        var dict = new ConcurrentDictionary<int, string>();
+        var catalog = new ConcurrentDictionary<string, int>();
         int success = 0;
         int failed = 0;
-        var rnd = new Random(42); // фиксированный seed для воспроизводимости внутри бенчмарка
-        var sw = Stopwatch.StartNew();
 
-        // Создаём 50 потоков (как в основном тесте)
-        int threadCount = 50;
+        Parallel.For(0, operationCount, i =>
+            catalog.TryAdd($"Key_{i}", i));
+
+        var sw = Stopwatch.StartNew();
         var tasks = new Task[threadCount];
-        for (int t = 0; t < threadCount; t++)
+
+        var options = new ParallelOptions { MaxDegreeOfParallelism = threadCount };
+        int opsPerThread = operationCount / threadCount;
+
+        Parallel.For(0, threadCount, options, t =>
         {
-            tasks[t] = Task.Run(() =>
+            var rnd = new Random(42 * t);
+
+            for (int i = 0; i < opsPerThread; i++)
             {
-                for (int i = 0; i < operationCount / threadCount; i++)
+                int keyIdx = rnd.Next(operationCount);
+                string key = $"Key_{keyIdx}";
+                int op = rnd.Next(3);
+
+                if (op == 0) // Add
                 {
-                    int key = rnd.Next(operationCount);
-                    // Случайная операция: добавление, получение, удаление
-                    int op = rnd.Next(3);
-                    if (op == 0)
-                    {
-                        if (dict.TryAdd(key, $"Value {key}"))
-                            Interlocked.Increment(ref success);
-                        else
-                            Interlocked.Increment(ref failed);
-                    }
-                    else if (op == 1)
-                    {
-                        if (dict.TryRemove(key, out _))
-                            Interlocked.Increment(ref success);
-                        else
-                            Interlocked.Increment(ref failed);
-                    }
+                    if (catalog.TryAdd($"NewKey_{keyIdx}_{i}", keyIdx))
+                        Interlocked.Increment(ref success);
                     else
-                    {
-                        if (dict.TryGetValue(key, out _))
-                            Interlocked.Increment(ref success);
-                        else
-                            Interlocked.Increment(ref failed);
-                    }
+                        Interlocked.Increment(ref failed);
                 }
-            });
-        }
-        Task.WaitAll(tasks);
+                else if (op == 1) // TryGet
+                {
+                    if (catalog.TryGetValue(key, out _))
+                        Interlocked.Increment(ref success);
+                    else
+                        Interlocked.Increment(ref failed);
+                }
+                else // Remove
+                {
+                    if (catalog.TryRemove(key, out _))
+                        Interlocked.Increment(ref success);
+                    else
+                        Interlocked.Increment(ref failed);
+                }
+            }
+        });
+
         sw.Stop();
         return (sw.ElapsedMilliseconds, success, failed);
     }
 
-    /// <summary>
-    /// Тестирование BlockingCollection: добавляем задачи, обрабатываем воркерами.
-    /// Возвращает время и количество обработанных задач.
-    /// </summary>
     public (long ElapsedMs, int ProcessedTasks) BenchmarkBlockingCollection(int taskCount, int workerCount)
     {
-        var bc = new BlockingCollection<Action>(taskCount);
+        var queueManager = new TaskQueueManager(taskCount);
         int processed = 0;
         var sw = Stopwatch.StartNew();
 
-        // Добавляем задачи
         for (int i = 0; i < taskCount; i++)
         {
             int taskId = i;
-            bc.Add(() => { Interlocked.Increment(ref processed); });
-        }
-        bc.CompleteAdding();
-
-        // Запускаем воркеров
-        var workers = new Task[workerCount];
-        for (int w = 0; w < workerCount; w++)
-        {
-            workers[w] = Task.Run(() =>
+            queueManager.AddTask($"Task_{taskId}", () =>
             {
-                foreach (var action in bc.GetConsumingEnumerable())
-                {
-                    action();
-                }
+                var result = Math.Sqrt(i) * Math.Log10(i + 1.0);
+                Interlocked.Increment(ref processed);
             });
         }
-        Task.WaitAll(workers);
+        queueManager.CompleteAdding();
+        queueManager.ProcessTasks(workerCount);
+
         sw.Stop();
         return (sw.ElapsedMilliseconds, processed);
     }
 
-    public (long ElapsedMs, int SuccessOps) BenchmarkSynchronizedDictionary(int operationCount)
+    public (long ElapsedMs, int SuccessOps) BenchmarkSynchronizedDictionary(int operationCount, int threadCount)
     {
-        var dict = new Dictionary<int, string>();
-        int success = 0;
-        var rnd = new Random(42);
+        var dict = new Dictionary<string, int>();
         var lockObj = new object();
-        var sw = Stopwatch.StartNew();
+        int success = 0;
+        int failed = 0;
 
-        int threadCount = 50;
-        var tasks = new Task[threadCount];
-        for (int t = 0; t < threadCount; t++)
+        for (int i = 0; i < operationCount; i++)
+            dict[$"Key_{i}"] = i;
+
+        var sw = Stopwatch.StartNew();
+        var options = new ParallelOptions { MaxDegreeOfParallelism = threadCount };
+        int opsPerThread = operationCount / threadCount;
+
+        Parallel.For(0, threadCount, options, t =>
         {
-            tasks[t] = Task.Run(() =>
+            var rnd = new Random(42 * t);
+
+            for (int i = 0; i < opsPerThread; i++)
             {
-                for (int i = 0; i < operationCount / threadCount; i++)
+                int keyIdx = rnd.Next(operationCount);
+                string key = $"Key_{keyIdx}";
+                int op = rnd.Next(3);
+
+                lock (lockObj)
                 {
-                    int key = rnd.Next(operationCount);
-                    int op = rnd.Next(3);
-                    lock (lockObj)
+                    if (op == 0) // Add
                     {
-                        if (op == 0)
+                        string newKey = $"NewKey_{keyIdx}_{i}";
+                        if (!dict.ContainsKey(newKey))
                         {
-                            if (!dict.ContainsKey(key))
-                            {
-                                dict[key] = $"Value {key}";
-                                success++;
-                            }
-                        }
-                        else if (op == 1)
-                        {
-                            if (dict.Remove(key))
-                                success++;
+                            dict[newKey] = keyIdx;
+                            Interlocked.Increment(ref success);
                         }
                         else
-                        {
-                            if (dict.TryGetValue(key, out _))
-                                success++;
-                        }
+                            Interlocked.Increment(ref failed);
+                    }
+                    else if (op == 1) // Search
+                    {
+                        if (dict.ContainsKey(key))
+                            Interlocked.Increment(ref success);
+                        else
+                            Interlocked.Increment(ref failed);
+                    }
+                    else // Remove
+                    {
+                        if (dict.Remove(key))
+                            Interlocked.Increment(ref success);
+                        else
+                            Interlocked.Increment(ref failed);
                     }
                 }
-            });
-        }
-        Task.WaitAll(tasks);
+            }
+        });
+
         sw.Stop();
         return (sw.ElapsedMilliseconds, success);
     }
 
     public void CompareAllCollections()
     {
-        const int ops = 1000;   // небольшое количество, чтобы быстро отработало в учебном примере
-        const int tasks = 1000;
-        const int workers = 10;
+        int ops = 100000;
+        int threads = 50;
+        int tasks = 10000;
+        int workers = 10;
 
-        var cdResult = BenchmarkConcurrentDictionary(ops);
+        var cdResult = BenchmarkConcurrentDictionary(ops, threads);
         var bcResult = BenchmarkBlockingCollection(tasks, workers);
-        var syncResult = BenchmarkSynchronizedDictionary(ops);
+        var syncResult = BenchmarkSynchronizedDictionary(ops, threads);
 
-        double cdPerSec = cdResult.SuccessOps / (cdResult.ElapsedMs / 1000.0);
-        double bcPerSec = bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0);
-        double syncPerSec = syncResult.SuccessOps / (syncResult.ElapsedMs / 1000.0);
-        double speedup = cdPerSec / syncPerSec;
+        double cdPerSec = cdResult.ElapsedMs > 0 ? cdResult.SuccessOps / (cdResult.ElapsedMs / 1000.0) : 0;
+        double bcPerSec = bcResult.ElapsedMs > 0 ? bcResult.ProcessedTasks / (bcResult.ElapsedMs / 1000.0) : 0;
+        double syncPerSec = syncResult.ElapsedMs > 0 ? syncResult.SuccessOps / (syncResult.ElapsedMs / 1000.0) : 0;
+        double speedup = syncPerSec > 0 ? cdPerSec / syncPerSec : 0;
 
         Console.WriteLine("\n=== Сравнение потокобезопасных коллекций ===");
         Console.WriteLine("ConcurrentDictionary:");

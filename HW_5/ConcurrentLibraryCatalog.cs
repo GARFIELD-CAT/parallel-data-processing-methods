@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 
-namespace LibrarySystem;
-
 
 public class Book
 {
@@ -33,7 +31,7 @@ public class ConcurrentLibraryCatalog
 
     public bool UpdateBook(string title, string newTitle, string newAuthor)
     {
-        if (!_books.TryGetValue(title, out Book oldBook))
+        if (!_books.TryGetValue(title, out Book? oldBook))
             return false;
 
         var newBook = new Book(newTitle, newAuthor);
