@@ -236,5 +236,8 @@ public class CollectionBenchmark
         Console.WriteLine($"  Производительность: {syncPerSec:F2} операций/сек");
 
         Console.WriteLine($"\nУскорение ConcurrentDictionary vs Synchronized: {speedup:F2}x");
+
+        double overheadPercent = (double)(syncResult.ElapsedMs - cdResult.ElapsedMs) / syncResult.ElapsedMs * 100;
+        Console.WriteLine($"Накладные расходы синхронизации: {overheadPercent:F1}%");
     }
 }
