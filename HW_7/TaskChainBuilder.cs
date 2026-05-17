@@ -47,7 +47,6 @@ public class TaskChainBuilder
         Task<decimal[]> step3 = step2.ContinueWith(prevTask =>
         {
             decimal sum = prevTask.Result.Sum();
-            Console.WriteLine($"Цепочка: сумма всех элементов после обработки = {sum}");
             return prevTask.Result;
         }, TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously);
 

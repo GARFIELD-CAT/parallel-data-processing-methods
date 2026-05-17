@@ -10,7 +10,7 @@ public class TaskDataProcessor
 
     public decimal ProcessItem(decimal value)
     {
-        return (decimal)Math.Round(Math.Sqrt((double)value), 2); ;
+        return (decimal)Math.Round(Math.Sqrt((double)value), 2);
     }
 
     private decimal[] ProcessDataPart(decimal[] data, int start, int end)

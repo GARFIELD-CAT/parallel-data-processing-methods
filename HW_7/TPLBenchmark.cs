@@ -110,6 +110,7 @@ public class TPLBenchmark
         double opsPerSecThread = successThread / (timeThread / 1000.0);
 
         // Вывод
+        Console.WriteLine("=== Сравнение подходов к параллельному программированию ===");
         Console.WriteLine("Task.Run:");
         Console.WriteLine($"  Время выполнения: {timeRun} мс");
         Console.WriteLine($"  Успешные операции: {successRun}");
