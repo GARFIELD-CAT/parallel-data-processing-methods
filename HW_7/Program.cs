@@ -71,7 +71,6 @@ class Program
         Console.WriteLine($"  Корректность:  {(CheckCorrectness(mainData, resultFactory) ? "Да" : "Нет")}");
 
 
-        // ========== 2. ТЕСТИРОВАНИЕ ОТМЕНЫ И ТАЙМАУТОВ ==========
         Console.WriteLine("\n--- Отмена операций ---");
         bool operationCancelled = false;
         long cancelTime = 0;
@@ -98,8 +97,7 @@ class Program
         Console.WriteLine($"  Отмена через токен: {(operationCancelled ? "Да" : "Нет")}");
         Console.WriteLine($"  Время до отмены: {cancelTime} мс");
 
-        // Тест таймаута
-        Console.WriteLine("  Тест таймаута...");
+        Console.WriteLine("  Тест отмены через таймаут...");
         sw.Restart();
         bool timeoutCancelled = false;
         try
