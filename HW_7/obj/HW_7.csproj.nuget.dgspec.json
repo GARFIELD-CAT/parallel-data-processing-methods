@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\homework\\parallel-data-processing-methods\\HW_7\\HW_7.csproj": {}
+    "D:\\homework\\parallel-data-processing-methods\\hw_7\\HW_7.csproj": {}
   },
   "projects": {
-    "D:\\homework\\parallel-data-processing-methods\\HW_7\\HW_7.csproj": {
+    "D:\\homework\\parallel-data-processing-methods\\hw_7\\HW_7.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\homework\\parallel-data-processing-methods\\HW_7\\HW_7.csproj",
+        "projectUniqueName": "D:\\homework\\parallel-data-processing-methods\\hw_7\\HW_7.csproj",
         "projectName": "HW_7",
-        "projectPath": "D:\\homework\\parallel-data-processing-methods\\HW_7\\HW_7.csproj",
+        "projectPath": "D:\\homework\\parallel-data-processing-methods\\hw_7\\HW_7.csproj",
         "packagesPath": "C:\\Users\\spbja\\.nuget\\packages\\",
-        "outputPath": "D:\\homework\\parallel-data-processing-methods\\HW_7\\obj\\",
+        "outputPath": "D:\\homework\\parallel-data-processing-methods\\hw_7\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
