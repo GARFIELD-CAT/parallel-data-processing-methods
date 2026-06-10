@@ -4,227 +4,182 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
-namespace DataflowApp;
 
-/// <summary>
-/// Класс, демонстрирующий разные способы построения пайплайнов TPL Dataflow.
-///
-/// Каждый метод Build*** возвращает объект <see cref="PipelineHandle{T}"/>,
-/// в котором лежит:
-///   - Input:           блок, куда нужно отправлять сообщения (точка входа);
-///   - Completion:      задача, по которой можно дождаться полного завершения;
-///   - GetProcessedCount: функция, возвращающая количество обработанных сообщений.
-///
-/// Такая обёртка нужна, чтобы вызывающий код (Program / Benchmark)
-/// не знал о внутреннем устройстве пайплайна — только об интерфейсе.
-/// </summary>
 public class DataflowPipeline
 {
-    /// <summary>
-    /// Удобная обёртка для возврата пайплайна "наружу".
-    /// T — это тип сообщения, которое принимает пайплайн на входе.
-    /// </summary>
+    public const int HeavyWorkIterations = 1500;
+
+    public static int HeavyTransform(int value)
+    {
+        int result = value;
+        for (int i = 0; i < HeavyWorkIterations; i++)
+            result = (result * 30 + 16) % 1_000_000;
+        return result;
+    }
+
     public class PipelineHandle<T>
     {
-        /// <summary>Точка входа: сюда отправляем сообщения через Post или SendAsync.</summary>
         public required ITargetBlock<T> Input { get; init; }
 
-        /// <summary>Задача завершения всего пайплайна (когда обработаны все сообщения).</summary>
         public required Task Completion { get; init; }
 
-        /// <summary>Возвращает количество обработанных сообщений (на момент вызова).</summary>
         public required Func<int> GetProcessedCount { get; init; }
     }
 
-    // =============================================================
-    // 1. ПРОСТОЙ ПАЙПЛАЙН: BufferBlock -> TransformBlock -> ActionBlock
-    // =============================================================
-
-    /// <summary>
-    /// Простой линейный пайплайн из 3 блоков:
-    /// 
-    ///    [BufferBlock] --> [TransformBlock] --> [ActionBlock]
-    ///       вход            обработка             приёмник
-    /// 
-    /// Каждое число умножается на 2, а ActionBlock считает обработанные сообщения.
-    /// </summary>
+    // Простой пайплайн из 3 блоков (источник → обработка → приемник)
     public PipelineHandle<int> BuildSimplePipeline()
     {
-        // Счётчик обработанных сообщений. Локальная переменная, захваченная замыканием —
-        // безопасно для Interlocked, потому что C# превращает её в поле скрытого класса.
         int processedCount = 0;
+        int errorCount = 0;
 
-        // 1. Источник: входной буфер. Просто хранит элементы до передачи дальше.
         var bufferBlock = new BufferBlock<int>();
 
-        // 2. Преобразование. Лямбда СИНХРОННАЯ — это требование задания
-        //    (никаких async/await внутри блоков).
-        var transformBlock = new TransformBlock<int, int>(item => item * 2);
+        var transformBlock = new TransformBlock<int, int>(item =>
+        {
+            try
+            {
+                return HeavyTransform(item);
+            }
+            catch
+            {
+                Interlocked.Increment(ref errorCount);
+                Console.WriteLine("Got error in BuildSimplePipeline");
+                return 0; // нейтральное значение — сообщение не теряем
+            }
+        },
+        new ExecutionDataflowBlockOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount,
+            EnsureOrdered = false
+        });
 
-        // 3. Приёмник: увеличивает счётчик.
-        //    Interlocked.Increment делает инкремент атомарным —
-        //    на случай, если блок настроен на параллельную обработку.
-        var actionBlock = new ActionBlock<int>(item =>
+        var actionBlock = new ActionBlock<int>(_ =>
         {
             Interlocked.Increment(ref processedCount);
         });
 
-        // Опции связывания:
-        //   PropagateCompletion = true означает, что когда блок-источник
-        //   получит Complete() и обработает все сообщения, он автоматически
-        //   вызовет Complete() на блоке-приёмнике. Это удобно для линейных пайплайнов.
         var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
 
-        // Связываем блоки в цепочку.
         bufferBlock.LinkTo(transformBlock, linkOptions);
         transformBlock.LinkTo(actionBlock, linkOptions);
 
         return new PipelineHandle<int>
         {
             Input = bufferBlock,
-            // Когда actionBlock завершится — весь пайплайн завершён.
             Completion = actionBlock.Completion,
             GetProcessedCount = () => processedCount
         };
     }
 
-    // =============================================================
-    // 2. СЛОЖНЫЙ ПАЙПЛАЙН С ВЕТВЛЕНИЯМИ И ОБЪЕДИНЕНИЕМ
-    // =============================================================
-
-    /// <summary>
-    /// Пайплайн с ветвлением по предикату:
-    /// 
-    ///                  [BufferBlock] (вход)
-    ///                        |
-    ///                  [Math.Abs]          (нормализация)
-    ///                        |
-    ///                 +------+------+
-    ///                 |             |
-    ///         (чётные)        (нечётные)
-    ///             |                 |
-    ///        [квадрат]         [умножить на 3]
-    ///             |                 |
-    ///             +------+----------+
-    ///                    |
-    ///               [ActionBlock]     (общий приёмник)
-    /// 
-    /// При ветвлении нельзя просто включить PropagateCompletion на каждой ветке —
-    /// первая же завершившаяся ветка завершит приёмник, и вторая получит ошибку.
-    /// Поэтому мы вручную ждём обе ветки и затем закрываем приёмник.
-    /// </summary>
+    // Cложный пайплайн с ветвлениями и объединениями.
+    // При ветвлении нельзя включать PropagateCompletion на обеих ветках
+    // первая же завершившаяся ветка закроет приёмник и вторая упадёт.
+    // Поэтому завершением управляем вручную
     public PipelineHandle<int> BuildComplexPipeline()
     {
         int processedCount = 0;
-
         var inputBuffer = new BufferBlock<int>();
 
-        // Нормализация: берём абсолютное значение.
-        // MaxDegreeOfParallelism > 1 позволяет блоку обрабатывать
-        // несколько сообщений параллельно — Dataflow сам управляет потоками.
         var absBlock = new TransformBlock<int, int>(
-            item => Math.Abs(item),
+            item =>
+            {
+                try
+                {
+                    return Math.Abs(item);
+                }
+                catch
+                {
+                    Console.WriteLine("Got error in BuildComplexPipeline: absBlock");
+                    return 0;
+                }
+            },
             new ExecutionDataflowBlockOptions
             {
                 MaxDegreeOfParallelism = Environment.ProcessorCount
             });
 
-        // Ветка для чётных чисел: возводит в квадрат.
-        var evenBranch = new TransformBlock<int, int>(item => item * item);
+        var evenBranch = new TransformBlock<int, int>(
+            item =>
+            {
+                try
+                {
+                    return item * item;
+                }
+                catch
+                {
+                    Console.WriteLine("Got error in BuildComplexPipeline: evenBranch");
+                    return 0;
+                }
+            }
+        );
 
-        // Ветка для нечётных чисел: умножает на 3.
-        var oddBranch = new TransformBlock<int, int>(item => item * 3);
+        var oddBranch = new TransformBlock<int, int>(
+            item =>
+            {
+                try
+                {
+                    return item * 3;
+                }
+                catch
+                {
+                    Console.WriteLine("Got error in BuildComplexPipeline: oddBranch");
+                    return 0;
+                }
+            }
+        );
 
-        // Общий приёмник: считает обработанные сообщения.
-        var sinkBlock = new ActionBlock<int>(item =>
-        {
-            Interlocked.Increment(ref processedCount);
-        });
+        var sinkBlock = new ActionBlock<int>(_ => Interlocked.Increment(ref processedCount));
+        var propagate = new DataflowLinkOptions { PropagateCompletion = true };
 
-        var linkOptionsPropagate = new DataflowLinkOptions { PropagateCompletion = true };
+        inputBuffer.LinkTo(absBlock, propagate);
 
-        // inputBuffer -> absBlock: с автозавершением.
-        inputBuffer.LinkTo(absBlock, linkOptionsPropagate);
-
-        // Из absBlock — два LinkTo с разными ПРЕДИКАТАМИ.
-        // Каждое сообщение пойдёт только в ту ветку, чей предикат вернул true.
         absBlock.LinkTo(evenBranch, item => item % 2 == 0);
         absBlock.LinkTo(oddBranch, item => item % 2 != 0);
 
-        // Хорошая практика: добавить "заглушку" NullTarget на случай,
-        // если ни один предикат не сработает (для int таких случаев нет,
-        // но в общем случае это спасает от подвисания сообщений в буфере).
+        // Заглушка, если ни один предикат не сработает
         absBlock.LinkTo(DataflowBlock.NullTarget<int>());
 
-        // Из веток — в общий приёмник. БЕЗ PropagateCompletion!
-        // Иначе первая завершённая ветка закроет sinkBlock, и вторая упадёт.
         evenBranch.LinkTo(sinkBlock);
         oddBranch.LinkTo(sinkBlock);
 
-        // Ручное управление завершением сложного пайплайна:
-        // когда absBlock завершён -> завершаем обе ветки ->
-        // когда обе ветки завершены -> завершаем приёмник.
-        // Использование ContinueWith здесь — это синхронизация завершения,
-        // а не запуск параллельной обработки (что запрещено).
-        var pipelineCompletion = absBlock.Completion.ContinueWith(_ =>
+        async Task CompleteWhenDone()
         {
+            await absBlock.Completion;
             evenBranch.Complete();
             oddBranch.Complete();
-            // Ждём обе ветки и закрываем приёмник.
-            Task.WhenAll(evenBranch.Completion, oddBranch.Completion).Wait();
+            await Task.WhenAll(evenBranch.Completion, oddBranch.Completion);
             sinkBlock.Complete();
-            sinkBlock.Completion.Wait();
-        });
+            await sinkBlock.Completion;
+        }
 
         return new PipelineHandle<int>
         {
             Input = inputBuffer,
-            Completion = pipelineCompletion,
+            Completion = CompleteWhenDone(),
             GetProcessedCount = () => processedCount
         };
     }
 
-    // =============================================================
-    // 3. ПАЙПЛАЙН С РАССЫЛКОЙ (BROADCAST)
-    // =============================================================
-
-    /// <summary>
-    /// Пайплайн с рассылкой одного и того же сообщения нескольким получателям:
-    /// 
-    ///   [BufferBlock] -> [BroadcastBlock] -> [ActionBlock #1]
-    ///                                     -> [ActionBlock #2]
-    ///                                     -> [ActionBlock #3]
-    /// 
-    /// BroadcastBlock хранит только ПОСЛЕДНЕЕ сообщение и копирует его
-    /// всем подписчикам. Полезно, например, для рыночных котировок —
-    /// одна цена идёт сразу в несколько обработчиков (логгер, сигналы, дашборд).
-    /// </summary>
+    // Пайплайн с рассылкой данных нескольким получателям
     public PipelineHandle<int> BuildBroadcastPipeline()
     {
         int processedCount = 0;
-
         var inputBuffer = new BufferBlock<int>();
 
-        // BroadcastBlock: cloningFunction просто возвращает само значение
-        // (для int копирование тривиально). Для классов сюда можно положить
-        // настоящее клонирование, чтобы получатели не делили один объект.
         var broadcastBlock = new BroadcastBlock<int>(value => value);
 
-        // Три "получателя": каждый делает что-то своё.
-        // Здесь все они просто увеличивают общий счётчик,
-        // чтобы можно было проверить, что все три получили сообщение.
         var receiver1 = new ActionBlock<int>(_ => Interlocked.Increment(ref processedCount));
         var receiver2 = new ActionBlock<int>(_ => Interlocked.Increment(ref processedCount));
         var receiver3 = new ActionBlock<int>(_ => Interlocked.Increment(ref processedCount));
 
-        var linkOptionsPropagate = new DataflowLinkOptions { PropagateCompletion = true };
+        var propagate = new DataflowLinkOptions { PropagateCompletion = true };
 
-        inputBuffer.LinkTo(broadcastBlock, linkOptionsPropagate);
-        broadcastBlock.LinkTo(receiver1, linkOptionsPropagate);
-        broadcastBlock.LinkTo(receiver2, linkOptionsPropagate);
-        broadcastBlock.LinkTo(receiver3, linkOptionsPropagate);
+        inputBuffer.LinkTo(broadcastBlock, propagate);
+        broadcastBlock.LinkTo(receiver1, propagate);
+        broadcastBlock.LinkTo(receiver2, propagate);
+        broadcastBlock.LinkTo(receiver3, propagate);
 
-        // Пайплайн считается завершённым, когда все три получателя закончили.
+        // Пайплайн завершён, когда закончили все три получателя.
         var pipelineCompletion = Task.WhenAll(
             receiver1.Completion,
             receiver2.Completion,
@@ -238,26 +193,18 @@ public class DataflowPipeline
         };
     }
 
-    // =============================================================
-    // 4. ПАЙПЛАЙН С ОГРАНИЧЕНИЕМ (THROTTLING)
-    // =============================================================
-
-    /// <summary>
-    /// Пайплайн с ограниченным размером буфера.
-    /// Если буфер переполнен, Post вернёт false, а SendAsync будет ждать
-    /// свободного места. Так мы реализуем backpressure (обратное давление):
-    /// быстрый продьюсер не "забивает" медленного консьюмера.
-    /// </summary>
+    // Пайплайн с ограничением количества сообщений
     public PipelineHandle<int> BuildThrottledPipeline(int maxMessages)
     {
+        if (maxMessages <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxMessages));
+
         int processedCount = 0;
 
-        // BoundedCapacity ограничивает количество сообщений ВНУТРИ блока.
         var blockOptions = new ExecutionDataflowBlockOptions
         {
             BoundedCapacity = maxMessages,
-            // EnsureOrdered = true (значение по умолчанию) — сохраняем порядок сообщений.
-            EnsureOrdered = true
+            EnsureOrdered = true // сохраняем порядок сообщений
         };
 
         var inputBuffer = new BufferBlock<int>(new DataflowBlockOptions
@@ -265,19 +212,25 @@ public class DataflowPipeline
             BoundedCapacity = maxMessages
         });
 
-        // Имитируем "тяжёлую" обработку — небольшие вычисления.
-        // Они нужны, чтобы продемонстрировать, как буфер заполняется и сбрасывается.
+        // Немного работы, чтобы буфер реально заполнялся и сбрасывался.
         var transformBlock = new TransformBlock<int, int>(item =>
         {
-            // Просто немного работы (умножение/деление), без Thread.Sleep,
-            // потому что блокировать поток внутри блока — плохая практика.
-            int result = item;
-            for (int i = 0; i < 100; i++)
-                result = (result * 31 + 17) % 1_000_000;
-            return result;
+            try
+            {
+                int result = item;
+                for (int i = 0; i < 100; i++)
+                    result = (result * 30 + 16) % 1_000_000;
+
+                return result;
+            }
+            catch
+            {
+                Console.WriteLine("Got error in BuildThrottledPipeline");
+                return 0;
+            }
         }, blockOptions);
 
-        var actionBlock = new ActionBlock<int>(item =>
+        var actionBlock = new ActionBlock<int>(_ =>
         {
             Interlocked.Increment(ref processedCount);
         }, blockOptions);
@@ -295,24 +248,7 @@ public class DataflowPipeline
         };
     }
 
-    // =============================================================
-    // 5. ПАЙПЛАЙН С "ПРИОРИТЕЗАЦИЕЙ"
-    // =============================================================
-
-    /// <summary>
-    /// Псевдо-приоритезированный пайплайн.
-    /// 
-    /// В TPL Dataflow нет встроенной приоритезации сообщений.
-    /// Поэтому мы делаем "ручную" приоритезацию через два входных буфера:
-    ///   - highPriorityBuffer (отправляйте сюда важные сообщения)
-    ///   - lowPriorityBuffer  (отправляйте сюда обычные)
-    /// 
-    /// Оба буфера связаны с одним приёмником. Поскольку highPriorityBuffer
-    /// связан ПЕРВЫМ, Dataflow при наличии сообщений в обоих буферах
-    /// будет отдавать предпочтение ему.
-    /// 
-    /// Это не "жёсткий" приоритет (нет гарантии), но в большинстве случаев работает.
-    /// </summary>
+    // Пайплайн с приоритезацией сообщений
     public PrioritizedPipelineHandle BuildPrioritizedPipeline()
     {
         int highProcessed = 0;
@@ -321,40 +257,42 @@ public class DataflowPipeline
         var highPriorityBuffer = new BufferBlock<string>();
         var lowPriorityBuffer = new BufferBlock<string>();
 
-        // Общий приёмник: помечает, откуда пришло сообщение.
-        // (Здесь различаем по префиксу строки — для демонстрации.)
         var sinkBlock = new ActionBlock<string>(message =>
         {
-            if (message.StartsWith("HIGH:"))
-                Interlocked.Increment(ref highProcessed);
-            else
-                Interlocked.Increment(ref lowProcessed);
+            try
+            {
+                if (message.StartsWith("HIGH:"))
+                    Interlocked.Increment(ref highProcessed);
+                else
+                    Interlocked.Increment(ref lowProcessed);
+            }
+            catch
+            {
+                Console.WriteLine($"Got error in BuildPrioritizedPipeline: {message}");
+            }
         });
 
-        // Сначала связываем высокоприоритетный буфер — он "первый в очереди".
         highPriorityBuffer.LinkTo(sinkBlock);
         lowPriorityBuffer.LinkTo(sinkBlock);
 
-        // Завершение: ждём оба буфера, потом закрываем приёмник.
-        var completionTask = Task.WhenAll(
-            highPriorityBuffer.Completion,
-            lowPriorityBuffer.Completion).ContinueWith(_ =>
+        async Task CompleteWhenDone()
         {
+            await Task.WhenAll(highPriorityBuffer.Completion, lowPriorityBuffer.Completion);
             sinkBlock.Complete();
-            sinkBlock.Completion.Wait();
-        });
+            await sinkBlock.Completion;
+        }
 
         return new PrioritizedPipelineHandle
         {
             HighPriorityInput = highPriorityBuffer,
             LowPriorityInput = lowPriorityBuffer,
-            Completion = completionTask,
+            Completion = CompleteWhenDone(),
             GetHighProcessed = () => highProcessed,
             GetLowProcessed = () => lowProcessed
         };
     }
 
-    /// <summary>Handle для приоритезированного пайплайна — два входа вместо одного.</summary>
+    // Результат для приоритезированного пайплайна
     public class PrioritizedPipelineHandle
     {
         public required ITargetBlock<string> HighPriorityInput { get; init; }
