@@ -127,11 +127,7 @@ public static class MessageProtocol
                 $"Размер Payload превышает допустимый максимум: {message.Payload.Length} > {MaxMessageSize}");
     }
 
-    // Код ниже под вопросом??? Нужен ли
-    // ---------------------------------------------------------------------
-    // Запись сообщения в сетевой поток.
-    // Сначала кладём 4 байта длины тела, потом само тело.
-    // ---------------------------------------------------------------------
+    // Запись сообщения в сетевой поток
     public static async Task WriteMessageAsync(
         Stream stream,
         NetworkMessage message,
@@ -144,38 +140,32 @@ public static class MessageProtocol
             throw new InvalidDataException(
                 $"Тело сообщения превышает максимум: {body.Length} > {MaxMessageSize}");
 
-        // 4 байта длины (int32, little-endian — стандартный порядок в .NET).
         var lengthPrefix = BitConverter.GetBytes(body.Length);
 
-        // Записываем сначала длину, потом тело. На стороне приёма
-        // мы будем делать то же самое в обратную сторону.
+        // Записываем сначала длину, потом тело
         await stream.WriteAsync(lengthPrefix, cancellationToken);
         await stream.WriteAsync(body, cancellationToken);
         await stream.FlushAsync(cancellationToken);
     }
 
-    // ---------------------------------------------------------------------
-    // Чтение сообщения из сетевого потока.
-    // Возвращает null, если соединение было корректно закрыто
-    // другой стороной до начала следующего сообщения.
-    // ---------------------------------------------------------------------
+    // Чтение сообщения из сетевого потока
     public static async Task<NetworkMessage?> ReadMessageAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
     {
-        // Шаг 1: читаем РОВНО 4 байта длины.
+        // Читаем 4 байта длины
         var lengthBytes = await ReadExactlyAsync(stream, 4, cancellationToken);
         if (lengthBytes is null)
-            return null; // Поток закрылся "чисто" — это нормальное завершение.
+            return null; // Поток закрылся
 
         var bodyLength = BitConverter.ToInt32(lengthBytes, 0);
 
-        // Защита от мусора и слишком больших значений.
+        // Защита от мусора и слишком больших значений
         if (bodyLength <= 0 || bodyLength > MaxMessageSize)
             throw new InvalidDataException(
                 $"Некорректная длина сообщения в префиксе: {bodyLength}");
 
-        // Шаг 2: читаем РОВНО bodyLength байт тела сообщения.
+        // Читаем тело сообщения
         var body = await ReadExactlyAsync(stream, bodyLength, cancellationToken);
         if (body is null)
             throw new EndOfStreamException(
@@ -184,16 +174,7 @@ public static class MessageProtocol
         return Deserialize(body);
     }
 
-    // ---------------------------------------------------------------------
-    // Вспомогательный метод: прочитать РОВНО count байт из потока.
-    //
-    // ВАЖНО: TCP может вернуть в одном ReadAsync МЕНЬШЕ байт, чем мы
-    // запросили (это и есть "частичное чтение"). Поэтому всегда нужно
-    // читать в цикле, пока не наберём нужное количество.
-    //
-    // Возвращает null, если поток закрылся СРАЗУ (до первого байта) —
-    // это нормальный разрыв соединения между сообщениями.
-    // ---------------------------------------------------------------------
+    // Прочитать ровно count байт из потока
     private static async Task<byte[]?> ReadExactlyAsync(
         Stream stream,
         int count,
@@ -210,11 +191,10 @@ public static class MessageProtocol
 
             if (bytesRead == 0)
             {
-                // 0 байт = другая сторона закрыла соединение.
+                // 0 байт = другая сторона закрыла соединение
                 if (totalRead == 0)
-                    return null; // ничего ещё не успели прочесть — нормально
+                    return null;
 
-                // Иначе мы успели прочитать кусок, но не всё — это ошибка протокола.
                 throw new EndOfStreamException(
                     $"Поток закрылся: прочитано {totalRead} из {count} байт.");
             }

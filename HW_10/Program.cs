@@ -104,25 +104,27 @@ foreach (var c in demoClients)
 
 // Прогоняем бенчмарки
 var benchmark = new NetworkBenchmark(ServerHost, ServerPort);
+var messageCount = 1000;
+var messageSize = 1024;
 
 Console.WriteLine();
-Console.WriteLine("=== Тест 1: один клиент (1000 сообщений по 1 КБ) ===");
-var singleResult = await benchmark.BenchmarkSingleClientAsync(messageCount: 1000, messageSize: 1024);
+Console.WriteLine($"=== Тест 1: один клиент ({messageCount} сообщений по {messageSize / 1024} КБ) ===");
+var singleResult = await benchmark.BenchmarkSingleClientAsync(messageCount: messageCount, messageSize: messageSize);
 Console.WriteLine($"Время:               {singleResult.Duration.TotalMilliseconds:F1} мс");
 Console.WriteLine($"Отправлено:          {singleResult.Sent}");
 Console.WriteLine($"Получено ACK:        {singleResult.Received}");
 Console.WriteLine($"Пропускная способн.: {singleResult.ThroughputMBps:F2} МБ/сек");
 
 Console.WriteLine();
-Console.WriteLine("=== Тест 2: 5 клиентов параллельно (по 200 сообщений по 1 КБ) ===");
-var multiResult = await benchmark.BenchmarkMultipleClientsAsync(clientCount: 5, messageCount: 200, messageSize: 1024);
+Console.WriteLine($"=== Тест 2: 5 клиентов параллельно (по {messageCount} сообщений по {messageSize / 1024} КБ) ===");
+var multiResult = await benchmark.BenchmarkMultipleClientsAsync(clientCount: 5, messageCount: messageCount, messageSize: messageSize);
 Console.WriteLine($"Время:               {multiResult.Duration.TotalMilliseconds:F1} мс");
 Console.WriteLine($"Отправлено суммарно: {multiResult.Sent}");
 Console.WriteLine($"Получено ACK:        {multiResult.Received}");
 
 Console.WriteLine();
-Console.WriteLine("=== Тест 3: пропускная способность (3 сек, сообщения по 4 КБ) ===");
-var throughputResult = await benchmark.BenchmarkThroughputAsync(durationSeconds: 3, messageSize: 4096);
+Console.WriteLine($"=== Тест 3: пропускная способность (3 сек, сообщения по {messageSize * 4 / 1024} КБ) ===");
+var throughputResult = await benchmark.BenchmarkThroughputAsync(durationSeconds: 3, messageSize: messageSize * 4);
 Console.WriteLine($"Отправлено байт:     {throughputResult.SentBytes:N0}");
 Console.WriteLine($"Получено байт (ACK): {throughputResult.ReceivedBytes:N0}");
 Console.WriteLine($"Пропускная способн.: {throughputResult.ThroughputMBps:F2} МБ/сек");
@@ -134,9 +136,7 @@ Console.WriteLine($"Средняя задержка:    {latencyResult.AverageMs
 Console.WriteLine($"Минимальная:         {latencyResult.MinMs:F2} мс");
 Console.WriteLine($"Максимальная:        {latencyResult.MaxMs:F2} мс");
 
-// ---------------------------------------------------------------------
-// 4) Сводная статистика по шаблону из задания.
-// ---------------------------------------------------------------------
+// Сводная статистика 
 var reliability = singleResult.Sent > 0
     ? singleResult.Received * 100.0 / singleResult.Sent
     : 0.0;
@@ -145,7 +145,7 @@ Console.WriteLine();
 Console.WriteLine("=== Результаты тестирования сетевого обмена ===");
 Console.WriteLine("Сервер:");
 Console.WriteLine($"  Адрес: {ServerHost}:{ServerPort}");
-Console.WriteLine($"  Подключено клиентов: {server.ConnectedClientsCount}");
+Console.WriteLine($"  Подключено клиентов на данный момент: {server.ConnectedClientsCount}");
 Console.WriteLine($"  Обработано сообщений: {server.MessagesProcessed}");
 Console.WriteLine();
 Console.WriteLine("Клиенты:");
@@ -164,9 +164,6 @@ Console.WriteLine($"  Тест 1 (один клиент):         {singleResult.
 Console.WriteLine($"  Тест 2 (множество клиентов):  {multiResult.Sent} отправлено / {multiResult.Received} ACK за {multiResult.Duration.TotalMilliseconds:F0} мс");
 Console.WriteLine($"  Тест 3 (пропускная способность): {throughputResult.ThroughputMBps:F2} МБ/сек");
 
-// ---------------------------------------------------------------------
-// 5) Аккуратно останавливаем сервер.
-// ---------------------------------------------------------------------
 await server.StopAsync();
 Console.WriteLine();
 Console.WriteLine("Готово.");
