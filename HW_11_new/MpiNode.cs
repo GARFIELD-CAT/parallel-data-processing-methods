@@ -105,13 +105,16 @@ public class Mailbox
         _signal.Release();
     }
 
-    // Дождаться сообщения по фильтру
-    public async Task<MpiMessage> Receive(Func<MpiMessage, bool> match, TimeSpan timeout)
+    // Дождаться сообщения по фильтру. По истечении timeout бросает TimeoutException
+    public async Task<MpiMessage> Receive(Func<MpiMessage, bool> match, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        using var cts = new CancellationTokenSource(timeout);
 
-        while (!cts.IsCancellationRequested)
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+
+        while (true)
         {
+            // Сначала проверяем, нет ли уже подходящего письма в ящике.
             lock (_lock)
             {
                 for (int i = 0; i < _messages.Count; i++)
@@ -125,12 +128,19 @@ public class Mailbox
                 }
             }
 
-            bool gotSignal = await _signal.WaitAsync(timeout, cts.Token);
+            // Ждем сигнала о новом письме
+            try
+            {
+                await _signal.WaitAsync(linkedCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException("Ожидание сообщения отменено вызывающей стороной.", cancellationToken);
 
-            if (!gotSignal)
                 throw new TimeoutException("Таймаут ожидания сообщения в почтовом ящике.");
+            }
         }
-        throw new TimeoutException("Таймаут ожидания сообщения в почтовом ящике");
     }
 }
 
