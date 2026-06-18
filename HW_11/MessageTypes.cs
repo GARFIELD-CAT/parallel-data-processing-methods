@@ -21,7 +21,7 @@ public static class MessageTags
     public const int Gather = 200;
     public const int Scatter = 300;
     public const int Reduce = 400;
-    public const int BarrierArrive = 500; // "я дошёл до барьера"
+    public const int BarrierArrive = 500; // "я дошел до барьера"
     public const int BarrierRelease = 501; // "всем можно идти дальше"
 }
 

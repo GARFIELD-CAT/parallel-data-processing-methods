@@ -32,23 +32,23 @@ public class MpiBenchmark
         new Random(16).NextBytes(payload);
         var times = new List<double>();
 
+        // Узел 0
+        async Task Ping()
+        {
+            await _comms[0].Send(1, payload);
+            await _comms[0].Receive(1);
+        }
+        // Узел 1
+        async Task Pong()
+        {
+            object received = await _comms[1].Receive(0);
+            await _comms[1].Send(0, received);
+        }
+
         for (int i = 0; i < iterations; i++)
         {
             var sw = Stopwatch.StartNew();
-
-            // Узел 0 шлет -> узел 1 принимает и шлет обратно -> узел 0 принимает.
-            var t0 = Task.Run(async () =>
-            {
-                await _comms[0].Send(1, payload);
-                await _comms[0].Receive(1);
-            });
-            var t1 = Task.Run(async () =>
-            {
-                object received = await _comms[1].Receive(0);
-                await _comms[1].Send(0, received);
-            });
-            await Task.WhenAll(t0, t1);
-
+            await Task.WhenAll(Ping(), Pong());
             sw.Stop();
             times.Add(sw.Elapsed.TotalMilliseconds);
         }
@@ -73,11 +73,7 @@ public class MpiBenchmark
             }
 
             var sw = Stopwatch.StartNew();
-
-            await RunAll(async comm =>
-            {
-                await comm.Broadcast(comm.Rank == 0 ? (object)payload : null, 0);
-            });
+            await RunAll(comm => comm.Broadcast(comm.Rank == 0 ? (object)payload : null, 0));
             sw.Stop();
 
             times.Add(sw.Elapsed.TotalMilliseconds);
@@ -100,16 +96,15 @@ public class MpiBenchmark
         {
             var sw = Stopwatch.StartNew();
 
-            await RunAll(async comm =>
+            await RunAll(comm =>
             {
                 // Каждый узел отдает массив int длиной dataSize.
                 var local = new int[dataSize];
-                for (int k = 0; k < dataSize; k++)
-                {
-                    local[k] = comm.Rank;
-                }
-                await comm.Gather(local, 0);
+                Array.Fill(local, comm.Rank);
+
+                return comm.Gather(local, 0);
             });
+
             sw.Stop();
             times.Add(sw.Elapsed.TotalMilliseconds);
         }
@@ -119,7 +114,7 @@ public class MpiBenchmark
         return (times.Average(), volume);
     }
 
-    // Измеряет время редукции данных (сумма, максимум, минимум)
+    // Измеряет время редукции данных (сумма)
     public async Task<(double TimeMs, long Result)> BenchmarkReduce(int iterations)
     {
         var times = new List<double>();
@@ -127,26 +122,15 @@ public class MpiBenchmark
 
         for (int i = 0; i < iterations; i++)
         {
-            object rootResult = null;
             var sw = Stopwatch.StartNew();
-
-            await RunAll(async comm =>
-            {
-                object r = await comm.Reduce(comm.Rank, (a, b) => (int)a + (int)b, 0);
-
-                if (comm.Rank == 0)
-                {
-                    // итог только у корня
-                    rootResult = r;
-                }
-            });
+            // Все узлы одновременно сворачивают свой ранг суммой к корню 0
+            object[] results = await Task.WhenAll(
+                _comms.Select(comm => comm.Reduce(comm.Rank, (a, b) => (int)a + (int)b, 0)));
             sw.Stop();
 
             times.Add(sw.Elapsed.TotalMilliseconds);
-            if (rootResult != null)
-            {
-                lastResult = (int)rootResult;
-            }
+            // итог только у корня (ранг 0)
+            lastResult = (int)results[0];
         }
 
         return (times.Average(), lastResult);

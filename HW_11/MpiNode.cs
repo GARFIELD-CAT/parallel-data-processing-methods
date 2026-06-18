@@ -227,11 +227,11 @@ public class MpiNode
                     ConnectedNodes[remoteNodeId] = wrapper;
                 }
 
-                Logger.Log(NodeId, $"Подключился к узлу {remoteNodeId} ({remoteAddress}:{remotePort}).");
+                // Logger.Log(NodeId, $"Подключился к узлу {remoteNodeId} ({remoteAddress}:{remotePort}).");
 
                 return;
             }
-            catch (Exception ex) when (attempt < 30)
+            catch (Exception ex)
             {
                 Logger.Log(NodeId, $"Попытка {attempt} подключиться к {remoteNodeId} не удалась: {ex.Message}");
                 await Task.Delay(100);
@@ -248,7 +248,8 @@ public class MpiNode
             try
             {
                 var client = await _listener.AcceptTcpClientAsync();
-                Logger.Log(NodeId, $"Входящее подключение от {client.Client.RemoteEndPoint}");
+                // Logger.Log(NodeId, $"Входящее подключение от {client.Client.RemoteEndPoint}");
+                // Ранг -1 - это заглушка. Еще не знаем кто к нам подключился.
                 _ = ReaderLoop(new TcpClientWrapper(-1, client));
             }
             catch (ObjectDisposedException) { break; }
@@ -274,7 +275,7 @@ public class MpiNode
                 if (message.MessageType == MessageTypeNames.Handshake)
                 {
                     wrapper.RemoteNodeId = message.SourceRank;
-                    Logger.Log(NodeId, $"Принял приветствие от узла {message.SourceRank}");
+                    // Logger.Log(NodeId, $"Принял приветствие от узла {message.SourceRank}");
                 }
                 else
                 {
@@ -290,9 +291,12 @@ public class MpiNode
         finally
         {
             lock (_connectionsLock)
-            {
-                ConnectedNodes.Remove(wrapper.RemoteNodeId);
-            }
+                if (wrapper.RemoteNodeId >= 0 &&
+                    ConnectedNodes.TryGetValue(wrapper.RemoteNodeId, out var w) &&
+                    ReferenceEquals(w, wrapper))
+                {
+                    ConnectedNodes.Remove(wrapper.RemoteNodeId);
+                }
 
             wrapper.Dispose();
         }
@@ -303,7 +307,7 @@ public class MpiNode
     {
         if (message.MessageType == MessageTypeNames.Handshake)
         {
-            Logger.Log(NodeId, $"Принял приветствие от узла {message.SourceRank}.");
+            // Logger.Log(NodeId, $"Принял приветствие от узла {message.SourceRank}.");
             return;
         }
 

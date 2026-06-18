@@ -2,11 +2,14 @@ using System.Diagnostics;
 using System.Text;
 
 
-// Удобная обертка над кластером: создаeт N коммуникаторов, запускает их, соединяет в полную сетку
+// Обертка над кластером: создаeт N коммуникаторов, запускает их, соединяет в полную сетку
 public sealed class Cluster : IDisposable
 {
     public MpiCommunicator[] Comms { get; }
-    public int Count => Comms.Length;
+    public int Count
+    {
+        get { return Comms.Length; }
+    }
 
     public Cluster(int nodeCount)
     {
@@ -48,61 +51,61 @@ public static class Program
         Console.OutputEncoding = Encoding.UTF8;
         const int nodeCount = 4;
 
-        Console.WriteLine("#  Демонстрация корректности операций (кластер из 4 узлов)     #");
+        Console.WriteLine($"Демонстрация корректности операций (кластер из {nodeCount} узлов)");
         Console.WriteLine("--------------------------------------------------------------\n");
 
-        using (var cluster = new Cluster(nodeCount))
+        var cluster = new Cluster(nodeCount);
+        await cluster.StartAll();
+
+        await DemoPointToPoint(cluster);
+        await DemoBroadcast(cluster);
+        await DemoScatter(cluster);
+        await DemoGather(cluster);
+        await DemoReduce(cluster);
+        await DemoAllReduce(cluster);
+        await DemoAllGather(cluster);
+        double barrierMs = await DemoBarrier(cluster);
+
+        Console.WriteLine("Измерение производительности (бенчмарки)");
+        Console.WriteLine("------------------------------------------------------------\n");
+
+        Logger.Enabled = false;
+        var bench = new MpiBenchmark(cluster.Comms);
+        var iterations = 50;
+        var messageSize = 1024;
+        var dataSize = 1000;
+
+        var p2p = await bench.BenchmarkPointToPoint(iterations, messageSize);
+        var bc = await bench.BenchmarkBroadcast(iterations, messageSize);
+        var ga = await bench.BenchmarkGather(iterations, dataSize);
+        var rd = await bench.BenchmarkReduce(iterations);
+        Logger.Enabled = true;
+
+        Console.WriteLine($"Точка-точка ({messageSize / 1024} КБ, ping-pong): среднее {p2p.Avg:F3} мс (мин {p2p.Min:F3}, макс {p2p.Max:F3})");
+        Console.WriteLine($"Broadcast ({messageSize / 1024} КБ): {bc.TimeMs:F3} мс, сообщений за операцию: {bc.Messages}");
+        Console.WriteLine($"Gather ({dataSize} значений): {ga.TimeMs:F3} мс, объём данных: {ga.DataVolumeBytes / 1024} КБ");
+        Console.WriteLine($"Reduce (сумма): {rd.TimeMs:F3} мс, результат: {rd.Result}");
+
+        Console.WriteLine($"Масштабируемость (Broadcast {messageSize / 1024} КБ при росте числа узлов)");
+        Console.WriteLine("-------------------------------------------------------------\n");
+        var scalability = new Dictionary<int, double>();
+        Logger.Enabled = false;
+        cluster.Dispose();
+
+        foreach (int n in new[] { 2, 4, 8, 16 })
         {
-            await cluster.StartAll();
-
-            await DemoPointToPoint(cluster);
-            await DemoBroadcast(cluster);
-            await DemoScatter(cluster);
-            await DemoGather(cluster);
-            await DemoReduce(cluster);
-            await DemoAllReduce(cluster);
-            await DemoAllGather(cluster);
-            double barrierMs = await DemoBarrier(cluster);
-
-            Console.WriteLine("#  Измерение производительности (бенчмарки)                   #");
-            Console.WriteLine("------------------------------------------------------------\n");
-
-            Logger.Enabled = false;
-            var bench = new MpiBenchmark(cluster.Comms);
-
-            var p2p = await bench.BenchmarkPointToPoint(iterations: 200, messageSize: 64);
-            var bc = await bench.BenchmarkBroadcast(iterations: 50, messageSize: 1024);
-            var ga = await bench.BenchmarkGather(iterations: 50, dataSize: 100);
-            var rd = await bench.BenchmarkReduce(iterations: 50);
-            Logger.Enabled = true;
-
-            Console.WriteLine($"Точка-точка (64 Б, ping-pong): среднее {p2p.Avg:F3} мс (мин {p2p.Min:F3}, макс {p2p.Max:F3})");
-            Console.WriteLine($"Broadcast (1 КБ): {bc.TimeMs:F3} мс, сообщений за операцию: {bc.Messages}");
-            Console.WriteLine($"Gather (100 значений): {ga.TimeMs:F3} мс, объём данных: {ga.DataVolumeBytes} Б");
-            Console.WriteLine($"Reduce (сумма): {rd.TimeMs:F3} мс, результат: {rd.Result}");
-
-            Console.WriteLine("#  Масштабируемость (Broadcast 1 КБ при росте числа узлов)     #");
-            Console.WriteLine("-------------------------------------------------------------\n");
-            var scalability = new Dictionary<int, double>();
-            Logger.Enabled = false;
-            cluster.Dispose();
-
-            foreach (int n in new[] { 2, 4, 8 })
-            {
-                using var smallCluster = new Cluster(n);
-                await smallCluster.StartAll();
-                var bench2 = new MpiBenchmark(smallCluster.Comms);
-                var bc2 = await bench2.BenchmarkBroadcast(iterations: 50, messageSize: 1024);
-                scalability[n] = bc2.TimeMs;
-                smallCluster.Dispose();
-            }
-            Logger.Enabled = true;
-
-            foreach (var kv in scalability)
-                Console.WriteLine($"{kv.Key} узла/узлов: {kv.Value:F3} мс");
-
-            PrintSummary(nodeCount, p2p, bc.TimeMs, ga.TimeMs, rd.TimeMs, barrierMs, scalability);
+            using var smallCluster = new Cluster(n);
+            await smallCluster.StartAll();
+            var bench2 = new MpiBenchmark(smallCluster.Comms);
+            var bc2 = await bench2.BenchmarkBroadcast(iterations, messageSize);
+            scalability[n] = bc2.TimeMs;
         }
+        Logger.Enabled = true;
+
+        foreach (var kv in scalability)
+            Console.WriteLine($"{kv.Key} узла/узлов: {kv.Value:F3} мс");
+
+        PrintSummary(nodeCount, p2p, bc.TimeMs, ga.TimeMs, rd.TimeMs, barrierMs, scalability, messageSize, dataSize);
     }
 
     private static async Task DemoPointToPoint(Cluster cluster)
@@ -136,7 +139,12 @@ public static class Program
         for (int i = 0; i < cluster.Count; i++)
         {
             MpiCommunicator c = cluster.Comms[i];
-            object[] data = c.Rank == 0 ? new object[] { "кусок-0", "кусок-1", "кусок-2", "кусок-3" } : null;
+            // Корень готовит по одному куску на каждый узел
+            object[] data = c.Rank == 0
+                ? Enumerable.Range(0, cluster.Count)
+                            .Select(j => (object)$"кусок-{j}")
+                            .ToArray()
+                : null;
             tasks[i] = c.Scatter(data, 0);
         }
         object[] results = await Task.WhenAll(tasks);
@@ -149,8 +157,12 @@ public static class Program
     {
         Console.WriteLine(">>> Gather: узел 0 собирает значения со всех (по кольцу)");
         var tasks = new Task<object[]>[cluster.Count];
+
         for (int i = 0; i < cluster.Count; i++)
+        {
             tasks[i] = cluster.Comms[i].Gather(cluster.Comms[i].Rank * 10, 0);
+        }
+
         object[][] results = await Task.WhenAll(tasks);
         var collected = results[0];
         Console.WriteLine($"    Узел 0 собрал: [{string.Join(", ", collected)}]\n");
@@ -161,7 +173,10 @@ public static class Program
         Console.WriteLine(">>> Reduce: сумма рангов на узле 0 (по дереву)");
         var tasks = new Task<object>[cluster.Count];
         for (int i = 0; i < cluster.Count; i++)
+        {
             tasks[i] = cluster.Comms[i].Reduce(cluster.Comms[i].Rank, (a, b) => (int)a + (int)b, 0);
+        }
+
         object[] results = await Task.WhenAll(tasks);
         Console.WriteLine($"    Узел 0 получил сумму: {results[0]} (ожидалось 6)\n");
     }
@@ -171,7 +186,10 @@ public static class Program
         Console.WriteLine(">>> AllReduce: сумма рангов на ВСЕХ узлах");
         var tasks = new Task<object>[cluster.Count];
         for (int i = 0; i < cluster.Count; i++)
+        {
             tasks[i] = cluster.Comms[i].AllReduce(cluster.Comms[i].Rank, (a, b) => (int)a + (int)b);
+        }
+
         object[] results = await Task.WhenAll(tasks);
         Console.WriteLine($"    Значения на узлах: [{string.Join(", ", results)}] (везде 6)\n");
     }
@@ -181,10 +199,17 @@ public static class Program
         Console.WriteLine(">>> AllGather: каждый узел получает данные всех");
         var tasks = new Task<object[]>[cluster.Count];
         for (int i = 0; i < cluster.Count; i++)
+        {
             tasks[i] = cluster.Comms[i].AllGather(cluster.Comms[i].Rank * 100);
+        }
+
         object[][] results = await Task.WhenAll(tasks);
+
         for (int i = 0; i < results.Length; i++)
+        {
             Console.WriteLine($"    Узел {i} видит: [{string.Join(", ", results[i])}]");
+        }
+
         Console.WriteLine();
     }
 
@@ -201,7 +226,7 @@ public static class Program
     private static void PrintSummary(int nodeCount,
         (double Avg, double Min, double Max) p2p,
         double broadcastMs, double gatherMs, double reduceMs, double barrierMs,
-        Dictionary<int, double> scalability)
+        Dictionary<int, double> scalability, int messageSize, int dataSize)
     {
         var ports = new List<int>();
         for (int i = 0; i < nodeCount; i++) ports.Add(MpiCommunicator.BasePort + i);
@@ -218,8 +243,8 @@ public static class Program
         Console.WriteLine($"  Максимальная задержка: {p2p.Max:F3} мс");
         Console.WriteLine();
         Console.WriteLine("Коллективные операции:");
-        Console.WriteLine($"  Broadcast (1 КБ): {broadcastMs:F3} мс");
-        Console.WriteLine($"  Gather (100 значений): {gatherMs:F3} мс");
+        Console.WriteLine($"  Broadcast ({messageSize / 1024} КБ): {broadcastMs:F3} мс");
+        Console.WriteLine($"  Gather ({dataSize} значений): {gatherMs:F3} мс");
         Console.WriteLine($"  Reduce (сумма): {reduceMs:F3} мс");
         Console.WriteLine($"  Barrier: {barrierMs:F3} мс");
         Console.WriteLine();

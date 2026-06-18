@@ -11,7 +11,7 @@ public class MpiCommunicator
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
     private readonly MpiNode _node;
-    private readonly CollectiveOperations _сollectiveOperations = new CollectiveOperations();
+    private readonly CollectiveOperations _collectiveOperations = new CollectiveOperations();
 
     public MpiCommunicator(int nodeId, int totalNodes)
     {
@@ -84,19 +84,19 @@ public class MpiCommunicator
     // Рассылка от корневого узла всем (по дереву)
     public async Task<object> Broadcast(object message, int root)
     {
-        return await _сollectiveOperations.ImplementBroadcast(this, message, root);
+        return await _collectiveOperations.ImplementBroadcast(this, message, root);
     }
 
     // Сбор данных от всех узлов к корневому (по кольцу)
     public async Task<object[]> Gather(object localData, int root)
     {
-        return await _сollectiveOperations.ImplementGather(this, localData, root);
+        return await _collectiveOperations.ImplementGather(this, localData, root);
     }
 
     // Раздача данных от корневого узла всем
     public async Task<object> Scatter(object[] data, int root)
     {
-        return await _сollectiveOperations.ImplementScatter(this, data, root);
+        return await _collectiveOperations.ImplementScatter(this, data, root);
     }
 
     // Сбор данных от всех ко всем (Gather к корню 0 + Broadcast результата)
@@ -123,7 +123,7 @@ public class MpiCommunicator
     // Редукция данных к корневому узлу (по дереву)
     public async Task<object> Reduce(object localValue, Func<object, object, object> operation, int root)
     {
-        return await _сollectiveOperations.ImplementReduce(this, localValue, operation, root);
+        return await _collectiveOperations.ImplementReduce(this, localValue, operation, root);
     }
 
     // Редукция ко всем узлам (Reduce к корню 0 + Broadcast результата)
@@ -137,7 +137,7 @@ public class MpiCommunicator
     // Барьерная синхронизация всех узлов
     public async Task Barrier()
     {
-        await _сollectiveOperations.ImplementBarrier(this);
+        await _collectiveOperations.ImplementBarrier(this);
     }
 
     // Счeтчики для бенчмарков
